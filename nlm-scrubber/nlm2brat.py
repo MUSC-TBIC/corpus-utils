@@ -85,7 +85,7 @@ def align_files( raw_file , processed_file , ann_file ):
     max_proc_pos = len( max_proc_txt.rstrip() )
     annot_list = []
     annotation_count = 0
-    matches = re.finditer( r'\[[^\]]+\]' , proc_txt )
+    matches = re.finditer( r'\[[A-Z0-9]+\+?\]' , proc_txt )
     for match in matches:
         annot = dict()
         annotation_count += 1
@@ -95,42 +95,88 @@ def align_files( raw_file , processed_file , ann_file ):
         annot[ 'end_offset_proc' ] = match.end()
         annot_list.append( annot )
     i = 0
+    merge_flag = False
     while( i < len( annot_list ) ):
         annot = annot_list[ i ]
-        ##
+        ################################################################
+        ## For the first annotation in a document, the raw and processed
+        ## first annotation begins at the same point
         if( i == 0 ):
             annot[ 'start_offset_raw' ] = annot[ 'start_offset_proc' ]
         else:
+            ## Otherwise, we can calculate the raw offset of the current
+            ## annotation based
             prev_start_raw = annot_list[ i - 1 ][ 'start_offset_raw' ]
             prev_start_proc = annot_list[ i - 1 ][ 'start_offset_proc' ]
             prev_end_raw = annot_list[ i - 1 ][ 'end_offset_raw' ]
             prev_end_proc = annot_list[ i - 1 ][ 'end_offset_proc' ]
-            if( proc_txt[ ( annot[ 'start_offset_proc' ] - 2 ):annot[ 'start_offset_proc' ] ] == '] ' ):
+            ## TODO - deal with 3 in a row
+            if( i > 0 and
+                ## [ANNOT][ANNOT]
+                ( annot[ 'start_offset_proc' ] == annot_list[ i - 1 ][ 'end_offset_proc' ] or
+                  ## [ANNOT] [ANNOT]
+                  ( proc_txt[ annot[ 'start_offset_proc' ] - 1 ] == ' ' and
+                    annot[ 'start_offset_proc' ] - 1 == annot_list[ i - 1 ][ 'end_offset_proc' ] ) or
+                  ## [ANNOT]\n\n[ANNOT]
+                  ( proc_txt[ annot[ 'start_offset_proc' ] - 1 ] == '\n' and
+                    annot[ 'start_offset_proc' ] - 2 == annot_list[ i - 1 ][ 'end_offset_proc' ] ) ) ):
+                log.info( 'Merging this annotation with previous annotation' )
                 annot[ 'start_offset_raw' ] = prev_start_raw
+                merge_flag = True
             else:
                 annot[ 'start_offset_raw' ] = prev_end_raw + ( annot[ 'start_offset_proc' ] - prev_end_proc )
-        ##
-        ## For the first annotation in a document, the raw and processed
-        ## first annotation begins at the same point
+        ################################################################
+        ## Next, we need to calculate the end offset in the
+        ## raw document.
+        ##log.info( '{}'.format( annot ) )
         if( annot[ 'end_offset_proc' ] == max_proc_pos ):
+            ## If we're at the end of the document, we don't have to
+            ## do anything clever to figure out the end offset
             annot[ 'end_offset_raw' ] = max_raw_pos
+        elif( i + 1 < len( annot_list ) and
+              ## [ANNOT][ANNOT]
+              ( annot[ 'end_offset_proc' ] == annot_list[ i + 1 ][ 'start_offset_proc' ] or
+                ## [ANNOT] [ANNOT]
+                ( proc_txt[ annot[ 'end_offset_proc' ] ] == ' ' and
+                  annot[ 'end_offset_proc' ] + 1 == annot_list[ i + 1 ][ 'start_offset_proc' ] ) ) ):
+            ## If we're immediately followed by another annotation,
+            ## then merge the two annotations since we can't distinguish
+            ## between them reliably.
+            log.info( 'Merging this annotation with next annotation' )
+            annot[ 'end_offset_raw' ] = None
         else:
+            ## Otherwise, grab the span of text between the end of this
+            ## annotation and the start of the next annotation (or the
+            ## end of the document).  Use that to figure out how wide
+            ## the original annotation was.
             if( i + 1 < len( annot_list ) ):
                 next_span = proc_txt[ annot[ 'end_offset_proc' ]:annot_list[ i + 1 ][ 'start_offset_proc' ] ]
             else:
                 next_span = proc_txt[ annot[ 'end_offset_proc' ]:max_proc_pos ]
             ## Newlines are introduced prior to a tag when the annotation
-            ## spans multiple lines
-            next_span = re.sub( r'[\n\r]+$' , "" , next_span )
+            ## spans multiple lines. However, sometimes, the following span
+            ## is *only* whitespace, in which case, we need to preserve it.
+            if( re.search( r'[^\n\r][\n\r]$' , next_span , re.MULTILINE | re.DOTALL ) ):
+                log.info( 'Stripping final newline in next_span' )
+                next_span = re.sub( r'[\n\r]$' , "" , next_span )
+            ##
             next_span_match = re.search( re.escape( next_span ) ,
                                          raw_txt[ annot[ 'start_offset_raw' ]: ] , 
                                          re.MULTILINE )
-            ##print( 'Next Span:||{}|\n----\n'.format( next_span ) )## , next_span_match ) )
             annot[ 'end_offset_raw' ] = annot[ 'start_offset_raw' ] + next_span_match.start()
-        ##print( '{}|{}|'.format( annot[ 'tag' ] , next_span ) )
-        annot[ 'text' ] = raw_txt[ annot[ 'start_offset_raw' ]:annot[ 'end_offset_raw' ] ]
-        ##print( '\t{}||{}||'.format( i , annot[ 'text' ] ) )
+        ##
+        if( annot[ 'end_offset_raw' ] is None ):
+            annot[ 'text' ] = '(see next)'
+        else:
+            annot[ 'text' ] = raw_txt[ annot[ 'start_offset_raw' ]:annot[ 'end_offset_raw' ] ]
+        if( merge_flag ):
+            merge_flag = False
+            annot_list[ i - 1 ][ 'end_offset_raw' ] = annot[ 'end_offset_raw' ]
+            annot_list[ i - 1 ][ 'text' ] = annot[ 'text' ]
+        ## Loop back around
         i += 1
+    ####################################################################
+    ## Write the extracted annotations to disk.
     with open( ann_file , 'w' ) as fp:
         for annot in annot_list:
             ## Convert newlines and carriage returns into the string "\n" for printing
@@ -148,73 +194,6 @@ def align_files( raw_file , processed_file , ann_file ):
                                                    annot[ 'end_offset_raw' ] ,
                                                    pii_str ) )##annot[ 'text' ] ) )
 
-        
-    # exit
-    # while( raw_pos < max_raw_pos and
-    #        proc_pos < max_proc_pos ):
-    #     if( raw_txt[ raw_pos ] == proc_txt[ proc_pos ] ):
-    #         raw_pos += 1
-    #         proc_pos += 1
-    #     elif( proc_txt[ proc_pos ] not in [ '[' , '\n' , '\r' ] ):
-    #         log.error( 'File \'{}\' mismatch char: {} ({}) - ({}) {}'.format( os.path.basename( raw_file ) ,
-    #                                                                           raw_pos ,
-    #                                                                           raw_txt[ raw_pos ] ,
-    #                                                                           ##raw_txt[ ( raw_pos - 5 ):( raw_pos + 5 ) ] ,
-    #                                                                           proc_txt[ proc_pos ] ,
-    #                                                                           ##proc_txt[ ( proc_pos - 5 ):( proc_pos + 5 ) ] ,
-    #                                                                           proc_pos ) )
-    #         return
-    #     else:
-    #         tag_types , proc_pos = extract_tag_types( txt = proc_txt , 
-    #                                                   tag_types = set() , 
-    #                                                   start_pos = proc_pos ,
-    #                                                   pos = proc_pos )
-    #         ## Skip ahead to the next non-whitespace char
-    #         ## Grab the next five words or to the next tag, whichever is first
-    #         word_count = 0
-    #         tail_pos = proc_pos
-    #         while( proc_txt[ tail_pos ] != '[' and
-    #                word_count < 5 and
-    #                tail_pos < max_proc_pos ):
-    #             if( proc_txt[ tail_pos ] == ' ' ):
-    #                 word_count += 1
-    #             tail_pos += 1
-    #         tail_str = proc_txt[ proc_pos:tail_pos ].rstrip()
-    #         log.info( 'Tail String = |{}|'.format( tail_str ) )
-    #         start_pii = raw_pos
-    #         if( tail_pos > max_proc_pos ):
-    #             ## Just copy over the rest of the raw txt
-    #             pii_str = raw_txt[ raw_pos:max_raw_pos ]
-    #             end_pii = max_raw_pos
-    #         else:
-    #             ## Find the appropriate span to copy
-    #             tail_length = len( tail_str )
-    #             while( raw_txt[ raw_pos:( raw_pos + tail_length ) ] != tail_str ):
-    #                 #log.info( '|{}|{}'.format( raw_txt[ start_pii:raw_pos ] , 
-    #                 #                           raw_txt[ raw_pos:( raw_pos + tail_length ) ] ) )
-    #                 raw_pos += 1
-    #                 if( ( os.path.basename( raw_file ) == '101-01.txt' and
-    #                       start_pii == 2236 and
-    #                       raw_pos == 2251 ) ):
-    #                     break
-    #             end_pii = raw_pos
-    #             pii_str = raw_txt[ start_pii:end_pii ]
-    #         log.info( 'PII String = |{}|'.format( pii_str ) )
-    #         ##
-    #         annotation_count += 1
-    #         with open( ann_file , 'a' ) as fp:
-    #             ## Convert newlines and carriage returns into the string "\n" for printing
-    #             pii_str = re.sub( r'[\n\r]+' , "\\\\n" , pii_str )
-    #             for tag_type in tag_types:
-    #                 fp.write( 'T{}\t{} {} {}\t{}\n'.format( annotation_count ,
-    #                                                         tag_type ,
-    #                                                         start_pii ,
-    #                                                         end_pii ,
-    #                                                         pii_str ) )
-    #         raw_pos += 1
-    #         proc_pos += 1
-    #         log.info( 'raw_pos = {}, proc_pos = {}'.format( raw_pos , proc_pos ) )
-            
 
 if __name__ == "__main__":
     ##
