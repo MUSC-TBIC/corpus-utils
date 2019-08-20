@@ -4,6 +4,7 @@ Corpus Utilities
 
 - Line Reshaper (line_reshaper.py)
 - NLM Scrubber to brat Format (nlm2brat.py)
+- Split 2006 i2b2 Corpus into Files (split_2006_corpus_int_files.py)
 
 Line Reshaper
 ===============
@@ -96,3 +97,30 @@ python3.7 nlm2brat.py \
   --output-dir ${CORPUS_DIR}/test/brat
 ```
 
+Split 2006 i2b2 Corpus into Files
+=============================================
+
+*NB* - This script doesn't work on the de-identification training
+corpus because of a tag mis-match.  We'll need to handle that in a
+later release. It should work fine on the test corpus and both smoking
+corpora.
+
+```
+python3 split_2006_corpus_into_files.py \
+  --input $CORPUS2006/annotated_testing_deid.xml \
+  --output $CORPUS2006/test/xml
+
+ls $CORPUS2006/test/xml
+056.xml
+111.xml
+135.xml
+151.xml
+168.xml
+177.xml
+185.xml
+194.xml
+202.xml
+206.xml
+...
+
+```
