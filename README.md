@@ -89,3 +89,10 @@ Max:	28949
 NLM Scrubber to brat Format
 ==============================
 
+```
+python3.7 nlm2brat.py \
+  --raw-dir ${CORPUS_DIR}/test-text \
+  --processed-dir ${CORPUS_DIR}/test/nphi_out \
+  --output-dir ${CORPUS_DIR}/test/brat
+```
+
