@@ -1,5 +1,12 @@
 
+Corpus Utilities
+================================
 
+- Line Reshaper (line_reshaper.py)
+- NLM Scrubber to brat Format (nlm2brat.py)
+
+Line Reshaper
+===============
 
 First, you'll probably want to gather general descriptive stats about the line shapes.
 
@@ -78,3 +85,14 @@ Mean:	12374.743333333334
 Median:	12089.0
 Max:	28949
 ```
+
+NLM Scrubber to brat Format
+==============================
+
+```
+python3.7 nlm2brat.py \
+  --raw-dir ${CORPUS_DIR}/test-text \
+  --processed-dir ${CORPUS_DIR}/test/nphi_out \
+  --output-dir ${CORPUS_DIR}/test/brat
+```
+
