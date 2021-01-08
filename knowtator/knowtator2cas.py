@@ -248,7 +248,7 @@ if __name__ == "__main__":
         cas_path = os.path.join( args.cas_root ,
                                  '{}.xml'.format( plain_filename ) )
         brat_txt_path = os.path.join( args.brat_root ,
-                                      '{}.xml'.format( plain_filename ) )
+                                      '{}.txt'.format( plain_filename ) )
         brat_ann_path = os.path.join( args.brat_root ,
                                       '{}.ann'.format( plain_filename ) )
         with open( brat_txt_path , 'w' ) as fp:
