@@ -4,3 +4,7 @@
 *.csv
 
 *.pyc
+
+*.log
+*.stderr
+*.stdout
