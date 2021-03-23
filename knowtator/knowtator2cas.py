@@ -287,16 +287,16 @@ if __name__ == "__main__":
                                                         spans[ mention_id ][ 'end' ] ,
                                                         spans[ mention_id ][ 'text_span' ] ) )
                 normalization_count += 1
-                fp.write( 'N{}\tReference T{} {}\t{}\n'.format( normalization_count ,
-                                                                annot_count ,
-                                                                src_type ,
-                                                                spans[ mention_id ][ 'class' ] ) )
+                fp.write( 'N{}\tReference T{} {}:0\t{}\n'.format( normalization_count ,
+                                                                  annot_count ,
+                                                                  src_type ,
+                                                                  spans[ mention_id ][ 'class' ] ) )
                 if( tgt_type is not None ):
                     normalization_count += 1
-                    fp.write( 'N{}\tReference T{} {}\t{}\n'.format( normalization_count ,
-                                                                    annot_count ,
-                                                                    tgt_type ,
-                                                                    mapped_section ) )
+                    fp.write( 'N{}\tReference T{} {}:0\t{}\n'.format( normalization_count ,
+                                                                      annot_count ,
+                                                                      tgt_type ,
+                                                                      mapped_section ) )
         cas.to_xmi( path = cas_path ,
                     pretty_print = True )
 
