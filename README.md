@@ -2,9 +2,20 @@
 Corpus Utilities
 ================================
 
+- Augment 2019 n2c2 Track 3 Corpus with Lab Name/Lab Value relations (patch_2019_n2c2_track-3_corpus.py) **AMAI Summit 2021**
 - Line Reshaper (line_reshaper.py)
 - NLM Scrubber to brat Format (nlm2brat.py)
 - Split 2006 i2b2 Corpus into Files (split_2006_corpus_int_files.py)
+
+
+Augment 2019 n2c2 Track 3 Corpus with Lab Name/Lab Value relations
+==================================================================
+
+**AMAI Summit 2021**
+
+See the ``README.rst`` in ``n2c2`` folder and the related redacted
+corpus:  https://github.com/MUSC-TBIC/2010-i2b2-VA-Challenge-Corpus-Augmentations
+
 
 Line Reshaper
 ===============
