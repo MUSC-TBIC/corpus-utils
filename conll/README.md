@@ -7,7 +7,11 @@ This repo contains code to convert Named entity recognition annotations in Brat 
 
 The code assumes that all the input files i.e., *.ann and corresponding *.txt files are located in a single directory i.e., input_directory. Run the code to print the output of all annotations to the output_file.
 
-    python brat2conll.py --input_directory={input_directory} --output_file={output_file}
+    python brat2conll.py --input_dir={input_directory} --output_file={output_file}
+    
+##Warning
+
+All discontinuous annotations are dropped for now and will be dealt with later
 
 ## References
 

@@ -1,1 +1,0 @@
-python brat2conll.py $'0002.txt' $'0002.ann' $'[LabName, LabValue]' $'test_output.txt' $'\n'

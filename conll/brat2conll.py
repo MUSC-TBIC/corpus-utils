@@ -55,11 +55,16 @@ class FormatConvertor:
                     continue
                 annotation_record = {}
                 entry = line.split()
-                annotation_record["label"] = entry[1]
-                annotation_record["start"] = int(entry[2])
-                annotation_record["end"] = int(entry[3])
-                annotation_record["text"] = ' '.join(entry[4:])
-                input_annotations.append(annotation_record)
+
+                # WARNING: all discontinuous annotations are dropped for now and will be dealt with later
+                if ";" in entry[3]:
+                    continue
+                else:
+                    annotation_record["label"] = entry[1]
+                    annotation_record["start"] = int(entry[2])
+                    annotation_record["end"] = int(entry[3])
+                    annotation_record["text"] = ' '.join(entry[4:])
+                    input_annotations.append(annotation_record)
 
         # Annotation file need not be sorted by start position so sort explicitly. Can also be done using end position
         input_annotations = sorted(input_annotations, key=lambda x: x["start"])
