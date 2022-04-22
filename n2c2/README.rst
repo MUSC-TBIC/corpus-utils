@@ -26,6 +26,7 @@ SHARPn
 - convert-n2c2-sdoh-brat-to-sharpn.py
   
 .. code-block::  bash
+
     export SDOH_DIR=Track2_SubtaskA/Annotations/dev/mimic
     mkdir /tmp/sdoh-sharpn
 
@@ -42,6 +43,7 @@ OMOP CDM
 - convert-n2c2-sdoh-brat-to-omop-cdm.py
 
 .. code-block::  bash
+
     export SDOH_DIR=Track2_SubtaskA/Annotations/dev/mimic
     mkdir /tmp/sdoh-omop
 
