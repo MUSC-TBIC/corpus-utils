@@ -1,5 +1,57 @@
 
 
+Converting from SDoH brat `.ann` files to CAS XMI
+=================================================
+
+The following two scripts are Python-based tools to convert the brat
+annotated corpus provided as part of the 2022 n2c2 Track 2 Shared Task
+on Social Determinants of Health into standard CAS XMI annotation
+schemas.
+
+Both scripts take four named arguments indicating:
+- the input directory of the brat `.txt` files (`--txt-root`)
+- the input directory of the brat `.ann` files (`--brat-root`)
+- the output directory of the CAS XMI files (`--cas-root`)
+- the input directory of the brat `.txt` files (`--types-file`)
+
+The text and ann files, as provided by the Shared Task are in the same
+folder but don't necessarily need to be.  The output folder contents
+will be overwritten with new files.  The type system XML file should
+contain all necessary SHARPn types.  An easy default file is the type
+system file provided with cTAKES.
+
+SHARPn
+------
+
+- convert-n2c2-sdoh-brat-to-sharpn.py
+  
+.. code-block::  bash
+    export SDOH_DIR=Track2_SubtaskA/Annotations/dev/mimic
+    mkdir /tmp/sdoh-sharpn
+
+    python convert-n2c2-sdoh-brat-to-sharpn.py \
+           --txt-root ${SDOH_DIR} \
+           --brat-root ${SDOH_DIR} \
+           --cas-root /tmp/sdoh-sharpn \
+           --types-file /path/to/apache-ctakes-4.0.0.1/resources/org/apache/ctakes/typesystem/types/TypeSystem.xml
+
+
+OMOP CDM
+--------
+
+- convert-n2c2-sdoh-brat-to-omop-cdm.py
+
+.. code-block::  bash
+    export SDOH_DIR=Track2_SubtaskA/Annotations/dev/mimic
+    mkdir /tmp/sdoh-omop
+
+    python convert-n2c2-sdoh-brat-to-omop-cdm.py \
+           --txt-root ${SDOH_DIR} \
+           --brat-root ${SDOH_DIR} \
+           --cas-root /tmp/sdoh-omop \
+           --types-file /path/to/apache-ctakes-4.0.0.1/resources/org/apache/ctakes/typesystem/types/TypeSystem.xml
+
+
 Augmenting Laboratory Test Names with Value Annotations
 =======================================================
 

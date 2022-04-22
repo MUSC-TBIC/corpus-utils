@@ -1,8 +1,10 @@
 *~
+\#*
 .#*
 
 *.csv
 
+*.class
 *.pyc
 
 *.log
