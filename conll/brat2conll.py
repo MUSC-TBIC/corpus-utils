@@ -66,7 +66,7 @@ class FormatConvertor:
                     annotation_record = {}
                     annotation_record["label"] = matches.group( 2 )
                     annotation_record["start"] = int( matches.group( 3 ) )
-                    annotation_record["end"] = int( matches.group( 3 ) )
+                    annotation_record["end"] = int( matches.group( 5 ) )
                     annotation_record["text"] = matches.group( 6 )
                     input_annotations.append(annotation_record)
 
@@ -86,7 +86,7 @@ class FormatConvertor:
                 input_annotations, text_string = self.read_input(annotation_file, text_file)
                 ## TODO - convert this to medspaCy tokenizer
                 text_tokens = re.split( r'([ \t\n])', text_string)
-                text_tokens = [t for t in text_tokens if t != ' ']
+                text_tokens = [t for t in text_tokens]## if t != ' ']
                 annotation_count = 0
                 current_ann_start = input_annotations[ annotation_count ][ "start" ]
                 current_ann_end = input_annotations[ annotation_count ][ "end" ]
@@ -99,100 +99,73 @@ class FormatConvertor:
                 ## Token index for the current sentence
                 tok_index = 0
                 file_name = text_file.split('/')[-1]
+                bio_state = 'O'
+                bio_label = ''
                 while i < num_tokens:
                     ## TODO - change this to update on sentence boundaries
-                    if text_tokens[i] == '\n':
+                    if( text_tokens[i] == '\n' ):
                         sent_index += 1
                         i += 1
+                        current_index += 1
                         tok_index = 0
                         fo.write('\n')
-                    elif re.search(r'[^\w\s]', text_tokens[i]):
-                        j = 0
-                        tokens_puncs = re.findall(r"\w+|[^\w\s]", text_tokens[i])
-                        token_len = len(tokens_puncs)
-                        while j < token_len:
-                            if current_index != current_ann_start:
-                                fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( tokens_puncs[j] ,
-                                                                                 current_index,
-                                                                                 current_index + len( tokens_puncs[ j ] ) ,
-                                                                                 tok_index ,
-                                                                                 sent_index ,
-                                                                                 file_name ,
-                                                                                 'O' ) )
-                                current_index += len(tokens_puncs[j])
-                                j += 1
-                                tok_index += 1
-                            else:
-                                label = input_annotations[annotation_count]["label"]
-                                while current_index < current_ann_end and j < token_len:
-                                    if last_label == label:
-                                        fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( tokens_puncs[j] ,
-                                                                                         current_index ,
-                                                                                         current_index + len( tokens_puncs[ j ] ) ,
-                                                                                         tok_index ,
-                                                                                         sent_index ,
-                                                                                         file_name ,
-                                                                                         'I-{}'.format( label ) ) )
-                                    else:
-                                        fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( tokens_puncs[j] ,
-                                                                                         current_index ,
-                                                                                         current_index + len( tokens_puncs[ j ] ) ,
-                                                                                         tok_index ,
-                                                                                         sent_index ,
-                                                                                         file_name ,
-                                                                                         'B-{}'.format( label ) ) )
-                                    last_label = label
-                                    current_index += len(tokens_puncs[j])
-                                    j += 1
-                                    tok_index += 1
-                                annotation_count += 1
-                                last_label = ''
-                                if annotation_count < num_annotations:
-                                    current_ann_start = input_annotations[annotation_count]["start"]
-                                    current_ann_end = input_annotations[annotation_count]["end"]
-                        current_index += 1
-                        i += 1
-                    else:
-                        if current_index != current_ann_start:
-                            fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
-                                                                             current_index ,
-                                                                             current_index + len( text_tokens[ i ] ) ,
-                                                                             tok_index ,
-                                                                             sent_index ,
-                                                                             file_name ,
-                                                                             'O' ) )
-                            current_index += len(text_tokens[i])+1
-                            i += 1
-                            tok_index += 1
-                        else:
-                            label = input_annotations[annotation_count]["label"]
-                            while current_index <= current_ann_end and i < num_tokens:
-                                if last_label == label:
-                                    fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
-                                                                                     current_index ,
-                                                                                     current_index + len( text_tokens[ i ] ) ,
-                                                                                     tok_index ,
-                                                                                     sent_index ,
-                                                                                     file_name ,
-                                                                                     'I-{}'.format( label ) ) )
-                                else:
-                                    fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
-                                                                                     current_index ,
-                                                                                     current_index + len( text_tokens[ i ] ) ,
-                                                                                     tok_index ,
-                                                                                     sent_index ,
-                                                                                     file_name ,
-                                                                                     'B-{}'.format( label ) ) )
-                                last_label = label
-                                current_index += len(text_tokens[i])+1
-                                i += 1
-                                tok_index += 1
+                        if( current_ann_end <= current_index ):
                             annotation_count += 1
-                            last_label = ''
-                            if annotation_count < num_annotations:
-                                current_ann_start = input_annotations[annotation_count]["start"]
-                                current_ann_end = input_annotations[annotation_count]["end"]
-
+                            bio_state = 'O'
+                            bio_label = ''
+                            if( annotation_count < num_annotations ):
+                                current_ann_start = input_annotations[ annotation_count ][ "start" ]
+                                current_ann_end = input_annotations[ annotation_count ][ "end" ]
+                    elif( text_tokens[ i ] in [ ' ' , '\t' ] ):
+                        i += 1
+                        current_index += 1
+                        if( current_ann_end <= current_index ):
+                            annotation_count += 1
+                            bio_state = 'O'
+                            bio_label = ''
+                            if( annotation_count < num_annotations ):
+                                current_ann_start = input_annotations[ annotation_count ][ "start" ]
+                                current_ann_end = input_annotations[ annotation_count ][ "end" ]
+                    else:
+                        token_end = current_index + len( text_tokens[ i ] )
+                        if( annotation_count < num_annotations ):
+                            label = input_annotations[ annotation_count ][ "label" ]
+                            if( current_index == current_ann_start ):
+                                ## If we just had the start of a
+                                ## label, then the last instance was a
+                                ## single token long and so we need to
+                                ## reset
+                                if( bio_state == 'B' ):
+                                    #annotation_count += 1
+                                    #label = input_annotations[ annotation_count ][ "label" ]
+                                    1
+                                bio_state = 'B'
+                                bio_label = '-{}'.format( label )
+                            elif( bio_state == 'B' ):
+                                if( token_end <= current_ann_end ):
+                                    bio_state = 'I'
+                                else:
+                                    print( "Warn:  Is this state possible?" )
+                                    ##bio_state = 'O'
+                                    ##bio_label = ''
+                                    ##annotation_count += 1
+                        fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
+                                                                         current_index,
+                                                                         token_end , ##current_index + len( text_tokens[ i ] ) ,
+                                                                         tok_index ,
+                                                                         sent_index ,
+                                                                         file_name ,
+                                                                         '{}{}'.format( bio_state , bio_label ) ) )
+                        tok_index += 1
+                        current_index += len( text_tokens[ i ] )## + 1
+                        i += 1
+                        if( current_ann_end <= current_index ):
+                            annotation_count += 1
+                            bio_state = 'O'
+                            bio_label = ''
+                            if( annotation_count < num_annotations ):
+                                current_ann_start = input_annotations[ annotation_count ][ "start" ]
+                                current_ann_end = input_annotations[ annotation_count ][ "end" ]
                 fo.write('\n')
     
     def read_input_folder(self):
