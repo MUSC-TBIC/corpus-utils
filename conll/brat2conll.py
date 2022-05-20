@@ -63,13 +63,19 @@ class FormatConvertor:
                 matches = re.match( r'^(T[0-9]+)\s+([\w\-]+)\s+([0-9]+)\s+([0-9]+;[0-9]+\s+)*([0-9]+)\s+(.*)' ,
                                     line )
                 if( matches ):
+                    label = matches.group( 2 )
+                    if( not label in [ 'Alcohol' ,
+                                       'Drug' ,
+                                       'Tobacco' ,
+                                       'LivingStatus' ,
+                                       'Employment' ] ):
+                        continue
                     annotation_record = {}
-                    annotation_record["label"] = matches.group( 2 )
+                    annotation_record["label"] = label
                     annotation_record["start"] = int( matches.group( 3 ) )
                     annotation_record["end"] = int( matches.group( 5 ) )
                     annotation_record["text"] = matches.group( 6 )
                     input_annotations.append(annotation_record)
-
         # Annotation file need not be sorted by start position so sort explicitly. Can also be done using end position
         input_annotations = sorted(input_annotations, key=lambda x: x["start"])
         return input_annotations, text_string
@@ -84,13 +90,16 @@ class FormatConvertor:
             for file_count, file_pair in enumerate(file_pair_list):
                 annotation_file, text_file = file_pair.ann, file_pair.text
                 input_annotations, text_string = self.read_input(annotation_file, text_file)
+                num_annotations = len( input_annotations )
+                if( num_annotations == 0 ):
+                    ## skip over any files with no samples to train from
+                    continue
                 ## TODO - convert this to medspaCy tokenizer
                 text_tokens = re.split( r'([ \t\n])', text_string)
                 text_tokens = [t for t in text_tokens]## if t != ' ']
                 annotation_count = 0
                 current_ann_start = input_annotations[ annotation_count ][ "start" ]
                 current_ann_end = input_annotations[ annotation_count ][ "end" ]
-                num_annotations = len( input_annotations )
                 current_index = 0
                 num_tokens = len(text_tokens)
                 i = 0 # Initialize Token number
@@ -142,13 +151,7 @@ class FormatConvertor:
                                 bio_state = 'B'
                                 bio_label = '-{}'.format( label )
                             elif( bio_state == 'B' ):
-                                if( token_end <= current_ann_end ):
-                                    bio_state = 'I'
-                                else:
-                                    print( "Warn:  Is this state possible?" )
-                                    ##bio_state = 'O'
-                                    ##bio_label = ''
-                                    ##annotation_count += 1
+                                bio_state = 'I'
                         fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
                                                                          current_index,
                                                                          token_end , ##current_index + len( text_tokens[ i ] ) ,
