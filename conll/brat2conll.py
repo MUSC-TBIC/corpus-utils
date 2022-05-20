@@ -80,20 +80,23 @@ class FormatConvertor:
             for file_count, file_pair in enumerate(file_pair_list):
                 annotation_file, text_file = file_pair.ann, file_pair.text
                 input_annotations, text_string = self.read_input(annotation_file, text_file)
-                text_tokens = re.split('([ \t\n])', text_string)
+                ## TODO - convert this to medspaCy tokenizer
+                text_tokens = re.split( r'([ \t\n])', text_string)
                 text_tokens = [t for t in text_tokens if t != ' ']
                 annotation_count = 0
-                current_ann_start = input_annotations[annotation_count]["start"]
-                current_ann_end = input_annotations[annotation_count]["end"]
-                num_annotations = len(input_annotations)
+                current_ann_start = input_annotations[ annotation_count ][ "start" ]
+                current_ann_end = input_annotations[ annotation_count ][ "end" ]
+                num_annotations = len( input_annotations )
                 current_index = 0
                 num_tokens = len(text_tokens)
                 i = 0 # Initialize Token number
                 last_label = ''
                 sent_index = 1
+                ## Token index for the current sentence
                 tok_index = 0
                 file_name = text_file.split('/')[-1]
                 while i < num_tokens:
+                    ## TODO - change this to update on sentence boundaries
                     if text_tokens[i] == '\n':
                         sent_index += 1
                         i += 1
@@ -105,8 +108,13 @@ class FormatConvertor:
                         token_len = len(tokens_puncs)
                         while j < token_len:
                             if current_index != current_ann_start:
-                                fo.write(f'{tokens_puncs[j]}\t{current_index}\t{current_index + len(tokens_puncs[j])}'
-                                         f'\t{tok_index}\t{sent_index}\t{file_name}\tO\n')
+                                fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( tokens_puncs[j] ,
+                                                                                 current_index,
+                                                                                 current_index + len( tokens_puncs[ j ] ) ,
+                                                                                 tok_index ,
+                                                                                 sent_index ,
+                                                                                 file_name ,
+                                                                                 'O' ) )
                                 current_index += len(tokens_puncs[j])
                                 j += 1
                                 tok_index += 1
@@ -114,9 +122,21 @@ class FormatConvertor:
                                 label = input_annotations[annotation_count]["label"]
                                 while current_index < current_ann_end and j < token_len:
                                     if last_label == label:
-                                        fo.write(f'{tokens_puncs[j]}\t{current_index}\t{current_index+len(tokens_puncs[j])}\t{tok_index}\t{sent_index}\t{file_name}\tI-{label}\n')
+                                        fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( tokens_puncs[j] ,
+                                                                                         current_index ,
+                                                                                         current_index + len( tokens_puncs[ j ] ) ,
+                                                                                         tok_index ,
+                                                                                         sent_index ,
+                                                                                         file_name ,
+                                                                                         'I-{}'.format( label ) ) )
                                     else:
-                                        fo.write(f'{tokens_puncs[j]}\t{current_index}\t{current_index + len(tokens_puncs[j])}\t{tok_index}\t{sent_index}\t{file_name}\tB-{label}\n')
+                                        fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( tokens_puncs[j] ,
+                                                                                         current_index ,
+                                                                                         current_index + len( tokens_puncs[ j ] ) ,
+                                                                                         tok_index ,
+                                                                                         sent_index ,
+                                                                                         file_name ,
+                                                                                         'B-{}'.format( label ) ) )
                                     last_label = label
                                     current_index += len(tokens_puncs[j])
                                     j += 1
@@ -130,7 +150,13 @@ class FormatConvertor:
                         i += 1
                     else:
                         if current_index != current_ann_start:
-                            fo.write(f'{text_tokens[i]}\t{current_index}\t{current_index + len(text_tokens[i])}\t{tok_index}\t{sent_index}\t{file_name}\tO\n')
+                            fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
+                                                                             current_index ,
+                                                                             current_index + len( text_tokens[ i ] ) ,
+                                                                             tok_index ,
+                                                                             sent_index ,
+                                                                             file_name ,
+                                                                             'O' ) )
                             current_index += len(text_tokens[i])+1
                             i += 1
                             tok_index += 1
@@ -138,9 +164,21 @@ class FormatConvertor:
                             label = input_annotations[annotation_count]["label"]
                             while current_index <= current_ann_end and i < num_tokens:
                                 if last_label == label:
-                                    fo.write(f'{text_tokens[i]}\t{current_index}\t{current_index + len(text_tokens[i])}\t{tok_index}\t{sent_index}\t{file_name}\tI-{label}\n')
+                                    fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
+                                                                                     current_index ,
+                                                                                     current_index + len( text_tokens[ i ] ) ,
+                                                                                     tok_index ,
+                                                                                     sent_index ,
+                                                                                     file_name ,
+                                                                                     'I-{}'.format( label ) ) )
                                 else:
-                                    fo.write(f'{text_tokens[i]}\t{current_index}\t{current_index + len(text_tokens[i])}\t{tok_index}\t{sent_index}\t{file_name}\tB-{label}\n')
+                                    fo.write( '{}\t{}\t{}\t{}\t{}\t{}\t{}\n'.format( text_tokens[ i ] ,
+                                                                                     current_index ,
+                                                                                     current_index + len( text_tokens[ i ] ) ,
+                                                                                     tok_index ,
+                                                                                     sent_index ,
+                                                                                     file_name ,
+                                                                                     'B-{}'.format( label ) ) )
                                 last_label = label
                                 current_index += len(text_tokens[i])+1
                                 i += 1
@@ -170,5 +208,5 @@ class FormatConvertor:
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    format_convertor = FormatConvertor(args.input_dir, args.output_file)
+    format_convertor = FormatConvertor( args.input_dir , args.output_file )
     format_convertor.parse_text()
