@@ -51,19 +51,23 @@ class FormatConvertor:
         # Read each line of the annotation file to a dictionary
         with open(annotation_file, 'r') as fi:
             for idx, line in enumerate(fi):
-                if idx % 2 != 0:
-                    continue
-                annotation_record = {}
-                entry = line.split()
-
-                # WARNING: all discontinuous annotations are dropped for now and will be dealt with later
-                if ";" in entry[3]:
-                    continue
-                else:
-                    annotation_record["label"] = entry[1]
-                    annotation_record["start"] = int(entry[2])
-                    annotation_record["end"] = int(entry[3])
-                    annotation_record["text"] = ' '.join(entry[4:])
+                ##
+                ## Continuous:
+                ## T1    Organization 0 43    International Business Machines Corporation
+                ## Discontinuous (0..23):
+                ## T1	Location 0 5;16 23	North America
+                ## T1	Location 0 5;8 12;16 23	North America
+                ## TODO - add flag to accommodate different scoring styles for
+                ##        discontinuous spans.  Current approach treats these
+                ##        spans as equivalent to the maximal span of all sub-spans.
+                matches = re.match( r'^(T[0-9]+)\s+([\w\-]+)\s+([0-9]+)\s+([0-9]+;[0-9]+\s+)*([0-9]+)\s+(.*)' ,
+                                    line )
+                if( matches ):
+                    annotation_record = {}
+                    annotation_record["label"] = matches.group( 2 )
+                    annotation_record["start"] = int( matches.group( 3 ) )
+                    annotation_record["end"] = int( matches.group( 3 ) )
+                    annotation_record["text"] = matches.group( 6 )
                     input_annotations.append(annotation_record)
 
         # Annotation file need not be sorted by start position so sort explicitly. Can also be done using end position
