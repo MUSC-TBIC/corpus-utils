@@ -125,9 +125,10 @@ class FormatConvertor:
                             if( annotation_count < num_annotations ):
                                 current_ann_start = input_annotations[ annotation_count ][ "start" ]
                                 current_ann_end = input_annotations[ annotation_count ][ "end" ]
-                    elif( text_tokens[ i ] in [ ' ' , '\t' ] ):
+                    elif( text_tokens[ i ] in [ ' ' , '\t' , '' ] ):
                         i += 1
-                        current_index += 1
+                        if( text_tokens[ i ] != '' ):
+                            current_index += 1
                         if( current_ann_end <= current_index ):
                             annotation_count += 1
                             bio_state = 'O'
