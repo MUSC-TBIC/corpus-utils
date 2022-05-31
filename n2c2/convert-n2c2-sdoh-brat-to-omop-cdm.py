@@ -38,6 +38,10 @@ except ImportError:
 
 import cassis
 
+import warnings
+
+warnings.filterwarnings( 'ignore' , category = UserWarning , module = 'cassis' )
+
 #############################################
 ## helper functions
 #############################################
@@ -75,9 +79,12 @@ def initialize_arg_parser():
                          help = "Directory for input corpus in brat format (.ann files)" )
 
     parser.add_argument( '--cas-root' , default = None ,
-                         required = True ,
                          dest = "cas_root",
                          help = "Directory for output corpus in CAS XMI formatted XML" )
+
+    parser.add_argument( '--lxcn-root' , default = None ,
+                         dest = "lxcn_root",
+                         help = "Directory for output tab-delimited lexicon files" )
     ##
     return parser
 
@@ -174,18 +181,48 @@ def loadTypesystem( args ):
                                name = 'term_modifiers' ,
                                description = '' ,
                                rangeType = 'uima.cas.String' )
+    ############
+    ## ... for OMOP CDM v5.3 FACT_RELATIONSHIP table properties
+    ##     https://ohdsi.github.io/CommonDataModel/cdm53.html#FACT_RELATIONSHIP
+    FactRelationship = typesystem.create_type( name = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TableProperties' ,
+                                               supertypeName = 'uima.tcas.Annotation' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'domain_concept_id_1' ,
+                               description = 'The CONCEPT id for the appropriate scoping domain' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'fact_id_1' ,
+                               description = 'The id for the first fact' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'domain_concept_id_2' ,
+                               description = 'The CONCEPT id for the appropriate scoping domain' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'fact_id_2' ,
+                               description = 'The id for the second fact' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'relationship_concept_id' ,
+                               description = 'This id for the relationship held between the two facts' ,
+                               rangeType = 'uima.cas.Integer' )
     ####
     return( typesystem )
 
 
 noteNlp_typeString = 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties'
+factRelationship_typeString = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TableProperties'
 
 #############################################
 ## core functions
 #############################################
 
+lexicon = {}
+
 def process_ann_file( cas ,
-                      input_filename ):
+                      input_filename ,
+                      note_total ,
+                      note_count ):
     spans = {}
     ##
     FSArray = typesystem.get_type( 'uima.cas.FSArray' )
@@ -255,8 +292,12 @@ def process_ann_file( cas ,
     ####
     eventMentions = {}
     modifierMentions = {}
+    
     with open( input_filename , 'r' ) as fp:
-        note_id = os.path.basename( input_filename )[ 0:-4 ]
+        try:
+            note_id = int( os.path.basename( input_filename )[ 0:-4 ] )
+        except ValueError as e:
+            note_id = note_count
         for line in fp:
             line = line.strip()
             ## Continuous:
@@ -284,8 +325,17 @@ def process_ann_file( cas ,
                     continue
                 mention_id = matches.group( 1 )
                 begin_offset = int( matches.group( 3 ) )
+                middle_offset = matches.group( 4 )
                 end_offset = int( matches.group( 5 ) )
                 text_span = matches.group( 6 )
+                lc_text_span = text_span.lower()
+                if( found_tag not in lexicon ):
+                    lexicon[ found_tag ] = {}
+                if( lc_text_span not in lexicon[ found_tag ] ):
+                    lexicon[ found_tag ][ lc_text_span ] = {}
+                if( text_span not in lexicon[ found_tag ][ lc_text_span ] ):
+                    lexicon[ found_tag ][ lc_text_span ][ text_span ] = 0
+                lexicon[ found_tag ][ lc_text_span ][ text_span ] += 1
                 if( found_tag in eventConcepts ):
                     eventMentions[ mention_id ] = {}
                     eventMentions[ mention_id ][ 'class' ] = found_tag
@@ -334,6 +384,15 @@ def process_ann_file( cas ,
                                    'StatusTimeVal' ,
                                    'TypeLivingVal' ] ):
                     modifierMentions[ mention_id ][ found_tag ] = annot_val
+                    if( found_tag not in lexicon ):
+                        lexicon[ found_tag ] = {}
+                    text_span = modifierMentions[ mention_id ][ 'text' ]
+                    lc_text_span = text_span.lower()
+                    if( lc_text_span not in lexicon[ found_tag ] ):
+                        lexicon[ found_tag ][ lc_text_span ] = {}
+                    if( annot_val not in lexicon[ found_tag ][ lc_text_span ] ):
+                        lexicon[ found_tag ][ lc_text_span ][ annot_val ] = 0
+                    lexicon[ found_tag ][ lc_text_span ][ annot_val ] += 1
                 continue
             ############
             ## E1	Tobacco:T1 Status:T2
@@ -470,14 +529,14 @@ if __name__ == "__main__":
     ## Iterate over the files, covert to CAS, and write the XMI to disk
     file_list = [ os.path.basename( f ) for f in glob.glob( os.path.join( args.brat_root ,
                                                                           '*.ann' ) ) ]
+    note_total = len( file_list )
+    note_count = 0
     for brat_filename in tqdm( sorted( file_list ) ,
                                file = args.progressbar_file ,
                                disable = args.progressbar_disabled ):
         plain_filename = brat_filename[ 0:-4 ]
         txt_path = os.path.join( args.txt_root ,
                                 '{}.txt'.format( plain_filename ) )
-        cas_path = os.path.join( args.cas_root ,
-                                 '{}.xmi'.format( plain_filename ) )
         if( not os.path.exists( txt_path ) ):
             log.warn( 'No matching txt file found for \'{}\''.format( xml_filename ) )
             continue
@@ -486,9 +545,57 @@ if __name__ == "__main__":
         cas = cassis.Cas( typesystem = typesystem )
         cas.sofa_string = note_contents
         cas.sofa_mime = "text/plain"
+        note_count += 1
         cas = process_ann_file( cas ,
-                                os.path.join( args.brat_root , brat_filename ) )
-        cas.to_xmi( path = cas_path ,
-                    pretty_print = True )
+                                os.path.join( args.brat_root , brat_filename ) ,
+                                note_total = note_total ,
+                                note_count = note_count )
+        if( args.cas_root is not None ):
+            cas_path = os.path.join( args.cas_root ,
+                                     '{}.xmi'.format( plain_filename ) )
+            cas.to_xmi( path = cas_path ,
+                        pretty_print = True )
+    ####
+    if( args.lxcn_root is not None ):
+        for entity in lexicon:
+            if( entity in [ 'StatusEmployVal' ,
+                            'StatusTimeVal' ,
+                            'TypeLivingVal' ] ):
+                continue
+            with open( os.path.join( args.lxcn_root ,
+                                     '{}.lxcn'.format( entity ) ) , 'w' ) as fp:
+                count = 0
+                print( '{}'.format( entity ) )
+                for lexeme in sorted( lexicon[ entity ] ):
+                    prefix = '\t'
+                    ambiguity = []
+                    default_value = None
+                    default_count = 0
+                    if( entity in [ 'StatusEmploy' , 'StatusTime' , 'TypeLiving' ] ):
+                        if( entity == 'StatusEmploy' ):
+                            value_concept = 'StatusEmployVal'
+                        elif( entity == 'StatusTime' ):
+                            value_concept = 'StatusTimeVal'
+                        elif( entity == 'TypeLiving' ):
+                            value_concept = 'TypeLivingVal'
+                        for annot_val in lexicon[ value_concept ][ lexeme ]:
+                            ambiguity.append( '{}={}'.format( annot_val ,
+                                                              lexicon[ value_concept ][ lexeme ][ annot_val ] ) )
+                            if( lexicon[ value_concept ][ lexeme ][ annot_val ] > default_count ):
+                                default_value = annot_val
+                    if( len( lexicon[ entity ][ lexeme ] ) > 1 ):
+                        prefix = '\t\t'
+                        if( default_value is None ):
+                            fp.write( '{}\n'.format( lexeme ) )
+                        else:
+                            fp.write( '{}\t{}\n'.format( lexeme , default_value ) )
+                        if( count < 5 ):
+                            print( '\t{}\t\t{}'.format( lexeme , '|'.join( ambiguity ) ) )
+                        ambiguity = []
+                    for instance in sorted( lexicon[ entity ][ lexeme ] ):
+                        if( count < 5 ):
+                            print( '{}{}\t{}\t{}'.format( prefix , instance , lexicon[ entity ][ lexeme ][ instance ] ,
+                                                          '|'.join( ambiguity ) ) )
+                        count += 1
 
             
