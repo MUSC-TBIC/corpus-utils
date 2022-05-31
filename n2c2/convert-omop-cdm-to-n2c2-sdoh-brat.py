@@ -38,6 +38,10 @@ except ImportError:
 
 import cassis
 
+import warnings
+
+warnings.filterwarnings( 'ignore' , category = UserWarning , module = 'cassis' )
+
 #############################################
 ## helper functions
 #############################################
@@ -112,6 +116,9 @@ def init_args():
     return args
 
 
+metadata_typeString = 'org.apache.ctakes.typesystem.type.structured.Metadata'
+
+
 ## TODO - make this easily configurable from the command line
 def loadTypesystem( args ):
     ############################
@@ -119,6 +126,15 @@ def loadTypesystem( args ):
     ## - https://github.com/dkpro/dkpro-cassis/blob/master/cassis/typesystem.py
     with open( args.typesFile , 'rb' ) as fp:
         typesystem = cassis.load_typesystem( fp )
+    ############
+    ## ... for Metadata
+    NoteMetadata = typesystem.get_type( metadata_typeString )
+    ## TODO - how to represent pairs, as per the reference standard?
+    ## TODO - why is this missing from cTAKES type system definition?
+    typesystem.add_feature( type_ = NoteMetadata ,
+                            name = 'other' ,
+                            description = '' ,
+                            rangeTypeName = 'uima.cas.String' )
     ############
     ## ... for OMOP CDM v5.3 NOTE_NLP table properties
     ##     https://ohdsi.github.io/CommonDataModel/cdm53.html#NOTE_NLP
@@ -262,12 +278,22 @@ def process_cas_file( cas ,
     orphanModifiers = []
     eventRelations = {}
     a_count = 0
+    t_count = 0
     for annot in cas.select( 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties' ):
         xml_id = annot[ 'note_nlp_id' ]
+        ## TODO - we need to fix this upstream
+        if( xml_id is None ):
+            t_count += 1
+            xml_id = t_count
         tag_id = 'T{}'.format( xml_id )
         begin_offset = annot[ 'offset' ]
         lexical_variant = annot[ 'lexical_variant' ]
-        end_offset = int( begin_offset ) + len( lexical_variant )
+        ## TODO - we need ot fix this upstream by making sure
+        ## lexical_variant is always filled in
+        if( lexical_variant is None ):
+            end_offset = annot[ 'end' ]
+        else:
+            end_offset = int( begin_offset ) + len( lexical_variant )
         cui = annot[ 'note_nlp_source_concept_id' ]
         if( cui in [ 'C1971295' , 'C1698618' , 'C3853727' ] ):
             concept_value = eventCUIs[ cui ]
