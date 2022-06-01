@@ -194,6 +194,54 @@ def loadTypesystem( args ):
     return( typesystem )
 
 
+def create_relations( spansByType , spanValues ,
+                      trigger_factor , modifier_factor ,
+                      attached_annots , brat , a_count ):
+    ########
+    for begin_trigger in spansByType[ trigger_factor ][ 'begin' ]:
+        trigger_id = spansByType[ trigger_factor ][ 'begin' ][ begin_trigger ]
+        prev_closest = {}
+        prev_closest[ modifier_factor ] = { 'distance' : None ,
+                                            't_id' : None }
+        for end_modifier in spansByType[ modifier_factor ][ 'end' ]:
+            modifier_id = spansByType[ modifier_factor ][ 'end' ][ end_modifier ]
+            if( end_modifier <= begin_trigger ):
+                distance = begin_trigger - end_modifier
+                if( distance > 50 ):
+                    next
+                elif( prev_closest[ modifier_factor ][ 'distance' ] is None or
+                      distance < prev_closest[ modifier_factor ][ 'distance' ] ):
+                    prev_closest[ modifier_factor ][ 'distance' ] = distance
+                    ##prev_closest[ modifier_factor ][ 't_id' ] = trigger_id
+                    prev_closest[ modifier_factor ][ 'm_id' ] = modifier_id
+                    #print( '{}\t{}\t{}\t{}'.format( modifier_id ,
+                    #                                end_modifier ,
+                    #                                begin_trigger ,
+                    #                                trigger_id ) )
+        if( prev_closest[ modifier_factor ][ 'distance' ] is not None ):
+            attached_annots.add( trigger_id )
+            modifier_id = prev_closest[ modifier_factor ][ 'm_id' ]
+            attached_annots.add( modifier_id )
+            rels = brat[ 'E' ][ trigger_id ].split( ' ' )
+            rels.append( '{}:T{}'.format( modifier_factor , modifier_id ) )
+            brat[ 'E' ][ trigger_id ] = ' '.join( rels )
+            #print( 'Closest:  {}\t{}\t{}'.format( '{}:T{}'.format( modifier_factor , prev_closest[ modifier_factor ][ 'm_id' ] ) ,
+            #                                      prev_closest[ modifier_factor ][ 'distance' ] ,
+            #                                      prev_closest[ modifier_factor ][ 'm_id' ] ) )
+            if( trigger_factor in [ 'Alcohol' , 'Drug' , 'Tobacco' ,
+                                    'LivingStatus' ] and
+                modifier_factor in [ 'StatusTime' ] ):
+                a_count += 1
+                ##print( '\t{}\t{}\t{}\t{}'.format( trigger_id ,
+                ##                                  modifier_id ,
+                ##                                  spanValues[ modifier_id ] ,
+                ##                                  rels ) )
+                brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusTimeVal' ,
+                                                             modifier_id ,
+                                                             spanValues[ modifier_id ] )
+    return( attached_annots , brat , a_count )
+
+
 noteNlp_typeString = 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties'
 
 #############################################
@@ -379,6 +427,7 @@ def process_cas_file( cas ,
                                                            end_offset ,
                                                            span_content )
         else:
+            ##print( '{}'.format( annot ) )
             orphanModifiers.append( annot )
         ## For tobacco use alone, we could set the StatusTimeVal from
         ## the anchor but for all others we need to use the event
@@ -452,37 +501,11 @@ def process_cas_file( cas ,
     #################################
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
                             'LivingStatus' ]:
-        for begin_trigger in spansByType[ trigger_factor ][ 'begin' ]:
-            modifier_factor = 'StatusTime'
-            trigger_id = spansByType[ trigger_factor ][ 'begin' ][ begin_trigger ]
-            prev_closest = {}
-            prev_closest[ modifier_factor ] = { 'distance' : None ,
-                                                't_id' : None }
-            for end_modifier in spansByType[ modifier_factor ][ 'end' ]:
-                modifier_id = spansByType[ modifier_factor ][ 'end' ][ end_modifier ]
-                if( end_modifier <= begin_trigger ):
-                    distance = begin_trigger - end_modifier
-                    if( distance > 50 ):
-                        next
-                    elif( prev_closest[ modifier_factor ][ 'distance' ] is None or
-                          distance < prev_closest[ modifier_factor ][ 'distance' ] ):
-                        prev_closest[ modifier_factor ][ 'distance' ] = distance
-                        ##prev_closest[ modifier_factor ][ 't_id' ] = trigger_id
-                        prev_closest[ modifier_factor ][ 'm_id' ] = modifier_id
-            if( prev_closest[ modifier_factor ][ 'distance' ] is not None ):
-                attached_annots.add( trigger_id )
-                modifier_id = prev_closest[ modifier_factor ][ 'm_id' ]
-                attached_annots.add( modifier_id )
-                rels = brat[ 'E' ][ trigger_id ].split( ' ' )
-                rels.append( '{}:T{}'.format( modifier_factor , modifier_id ) )
-                brat[ 'E' ][ trigger_id ] = ' '.join( rels )
-                if( trigger_factor in [ 'Alcohol' , 'Drug' , 'Tobacco' ,
-                                        'LivingStatus' ] and
-                    modifier_factor in [ 'StatusTime' ] ):
-                    a_count += 1
-                    brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusTimeVal' ,
-                                                                 modifier_id ,
-                                                                 spanValues[ modifier_id ] )
+        modifier_factor = 'StatusTime'
+        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+                                                             trigger_factor , modifier_factor ,
+                                                             attached_annots , brat ,
+                                                             a_count )
     ########
     return( attached_annots , brat )
 
