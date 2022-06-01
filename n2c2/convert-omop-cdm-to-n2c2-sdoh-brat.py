@@ -205,6 +205,19 @@ def create_relations( spansByType , spanValues ,
                                             't_id' : None }
         for end_modifier in spansByType[ modifier_factor ][ 'end' ]:
             modifier_id = spansByType[ modifier_factor ][ 'end' ][ end_modifier ]
+            if( ( modifier_factor == 'StatusEmploy' and
+                  spanValues[ modifier_id ] not in [ 'employed' ,
+                                                     'unemployed' ,
+                                                     'retired' ,
+                                                     'on_disability' ,
+                                                     'student' ,
+                                                     'homemaker' ] ) or
+               ( trigger_factor == 'LivingStatus' and
+                 modifier_factor == 'StatusTime' and                 
+                 spanValues[ modifier_id ] not in [ 'current' ,
+                                                    'past' ,
+                                                    'future' ] ) ):
+                continue
             if( end_modifier <= begin_trigger ):
                 distance = begin_trigger - end_modifier
                 if( distance > 50 ):
@@ -214,10 +227,6 @@ def create_relations( spansByType , spanValues ,
                     prev_closest[ modifier_factor ][ 'distance' ] = distance
                     ##prev_closest[ modifier_factor ][ 't_id' ] = trigger_id
                     prev_closest[ modifier_factor ][ 'm_id' ] = modifier_id
-                    #print( '{}\t{}\t{}\t{}'.format( modifier_id ,
-                    #                                end_modifier ,
-                    #                                begin_trigger ,
-                    #                                trigger_id ) )
         if( prev_closest[ modifier_factor ][ 'distance' ] is not None ):
             attached_annots.add( trigger_id )
             modifier_id = prev_closest[ modifier_factor ][ 'm_id' ]
@@ -225,17 +234,26 @@ def create_relations( spansByType , spanValues ,
             rels = brat[ 'E' ][ trigger_id ].split( ' ' )
             rels.append( '{}:T{}'.format( modifier_factor , modifier_id ) )
             brat[ 'E' ][ trigger_id ] = ' '.join( rels )
-            #print( 'Closest:  {}\t{}\t{}'.format( '{}:T{}'.format( modifier_factor , prev_closest[ modifier_factor ][ 'm_id' ] ) ,
-            #                                      prev_closest[ modifier_factor ][ 'distance' ] ,
-            #                                      prev_closest[ modifier_factor ][ 'm_id' ] ) )
+            if( modifier_factor == 'StatusEmploy' ):
+                print( 'Closest:  {}\t{}\t{}'.format( '{}:T{}'.format( modifier_factor , prev_closest[ modifier_factor ][ 'm_id' ] ) ,
+                                                      prev_closest[ modifier_factor ][ 'distance' ] ,
+                                                      modifier_id ) )
+            if( trigger_factor in [ 'Employment' ] and
+                modifier_factor in [ 'StatusEmploy' ] ):
+                a_count += 1
+                brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusEmployVal' ,
+                                                             modifier_id ,
+                                                             spanValues[ modifier_id ] )
+            if( trigger_factor in [ 'LivingStatus' ] and
+                modifier_factor in [ 'TypeLiving' ] ):
+                a_count += 1
+                brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'TypeLivingVal' ,
+                                                             modifier_id ,
+                                                             spanValues[ modifier_id ] )
             if( trigger_factor in [ 'Alcohol' , 'Drug' , 'Tobacco' ,
                                     'LivingStatus' ] and
                 modifier_factor in [ 'StatusTime' ] ):
                 a_count += 1
-                ##print( '\t{}\t{}\t{}\t{}'.format( trigger_id ,
-                ##                                  modifier_id ,
-                ##                                  spanValues[ modifier_id ] ,
-                ##                                  rels ) )
                 brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusTimeVal' ,
                                                              modifier_id ,
                                                              spanValues[ modifier_id ] )
@@ -254,8 +272,11 @@ def process_cas_file( cas ,
     spansByType = { 'Alcohol' : {} ,
                     'Drug' : {} ,
                     'Tobacco' : {} ,
+                    'Employment' : {} ,
                     'LivingStatus' : {} ,
-                    'StatusTime' : {}
+                    'StatusEmploy' : {} ,
+                    'StatusTime' : {} ,
+                    'TypeLiving' : {}
                    }
     spanValues = {}
     for span_type in spansByType:
@@ -499,6 +520,18 @@ def process_cas_file( cas ,
             spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
             spansByType[ concept_type ][ 'end' ][ end_offset ] = xml_id
     #################################
+    for trigger_factor in [ 'Employment' ]:
+        modifier_factor = 'StatusEmploy'
+        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+                                                             trigger_factor , modifier_factor ,
+                                                             attached_annots , brat ,
+                                                             a_count )
+    for trigger_factor in [ 'LivingStatus' ]:
+        modifier_factor = 'TypeLiving'
+        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+                                                             trigger_factor , modifier_factor ,
+                                                             attached_annots , brat ,
+                                                             a_count )
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
                             'LivingStatus' ]:
         modifier_factor = 'StatusTime'
