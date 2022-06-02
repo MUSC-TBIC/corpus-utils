@@ -210,6 +210,13 @@ def loadTypesystem( args ):
     return( typesystem )
 
 
+def normalizeTerm( word ):
+    lemma = re.sub( r' \d+ ' , ' \\\d+ ' , word.lower() )
+    lemma = re.sub( r'^\d+ ' , '\\\d+ ' , lemma )
+    lemma = re.sub( r' \d+$' , ' \\\d+' , lemma )
+    return( lemma )
+
+
 noteNlp_typeString = 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties'
 factRelationship_typeString = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TableProperties'
 
@@ -328,7 +335,7 @@ def process_ann_file( cas ,
                 middle_offset = matches.group( 4 )
                 end_offset = int( matches.group( 5 ) )
                 text_span = matches.group( 6 )
-                lc_text_span = text_span.lower()
+                lc_text_span = normalizeTerm( text_span )
                 if( found_tag not in lexicon ):
                     lexicon[ found_tag ] = {}
                 if( lc_text_span not in lexicon[ found_tag ] ):
@@ -387,7 +394,7 @@ def process_ann_file( cas ,
                     if( found_tag not in lexicon ):
                         lexicon[ found_tag ] = {}
                     text_span = modifierMentions[ mention_id ][ 'text' ]
-                    lc_text_span = text_span.lower()
+                    lc_text_span = normalizeTerm( text_span )
                     if( lc_text_span not in lexicon[ found_tag ] ):
                         lexicon[ found_tag ][ lc_text_span ] = {}
                     if( annot_val not in lexicon[ found_tag ][ lc_text_span ] ):
