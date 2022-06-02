@@ -200,11 +200,13 @@ def create_relations( spansByType , spanValues ,
     ########
     for begin_trigger in spansByType[ trigger_factor ][ 'begin' ]:
         trigger_id = spansByType[ trigger_factor ][ 'begin' ][ begin_trigger ]
+        end_trigger = spansByType[ trigger_factor ][ 'end' ][ trigger_id ]
         prev_closest = {}
         prev_closest[ modifier_factor ] = { 'distance' : None ,
                                             't_id' : None }
-        for end_modifier in spansByType[ modifier_factor ][ 'end' ]:
-            modifier_id = spansByType[ modifier_factor ][ 'end' ][ end_modifier ]
+        for begin_modifier in spansByType[ modifier_factor ][ 'begin' ]:
+            modifier_id = spansByType[ modifier_factor ][ 'begin' ][ begin_modifier ]
+            end_modifier = spansByType[ modifier_factor ][ 'end' ][ modifier_id ]
             if( ( modifier_factor == 'StatusEmploy' and
                   spanValues[ modifier_id ] not in [ 'employed' ,
                                                      'unemployed' ,
@@ -227,6 +229,15 @@ def create_relations( spansByType , spanValues ,
                     prev_closest[ modifier_factor ][ 'distance' ] = distance
                     ##prev_closest[ modifier_factor ][ 't_id' ] = trigger_id
                     prev_closest[ modifier_factor ][ 'm_id' ] = modifier_id
+            elif( end_trigger <= begin_modifier ):
+                distance = begin_modifier - end_trigger
+                if( distance > 50 ):
+                    next
+                elif( prev_closest[ modifier_factor ][ 'distance' ] is None or
+                      distance < prev_closest[ modifier_factor ][ 'distance' ] ):
+                    prev_closest[ modifier_factor ][ 'distance' ] = distance
+                    ##prev_closest[ modifier_factor ][ 't_id' ] = trigger_id
+                    prev_closest[ modifier_factor ][ 'm_id' ] = modifier_id
         if( prev_closest[ modifier_factor ][ 'distance' ] is not None ):
             attached_annots.add( trigger_id )
             modifier_id = prev_closest[ modifier_factor ][ 'm_id' ]
@@ -234,10 +245,6 @@ def create_relations( spansByType , spanValues ,
             rels = brat[ 'E' ][ trigger_id ].split( ' ' )
             rels.append( '{}:T{}'.format( modifier_factor , modifier_id ) )
             brat[ 'E' ][ trigger_id ] = ' '.join( rels )
-            if( modifier_factor == 'StatusEmploy' ):
-                print( 'Closest:  {}\t{}\t{}'.format( '{}:T{}'.format( modifier_factor , prev_closest[ modifier_factor ][ 'm_id' ] ) ,
-                                                      prev_closest[ modifier_factor ][ 'distance' ] ,
-                                                      modifier_id ) )
             if( trigger_factor in [ 'Employment' ] and
                 modifier_factor in [ 'StatusEmploy' ] ):
                 a_count += 1
@@ -276,6 +283,7 @@ def process_cas_file( cas ,
                     'LivingStatus' : {} ,
                     'StatusEmploy' : {} ,
                     'StatusTime' : {} ,
+                    'Type' : {} ,
                     'TypeLiving' : {}
                    }
     spanValues = {}
@@ -402,7 +410,7 @@ def process_cas_file( cas ,
                                                            span_content )
             if( concept_type in spansByType ):
                 spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
-                spansByType[ concept_type ][ 'end' ][ end_offset ] = xml_id
+                spansByType[ concept_type ][ 'end' ][ xml_id ] = end_offset
             ####
             term_modifiers = annot[ 'term_modifiers' ].split( ';' )
             try:
@@ -437,10 +445,11 @@ def process_cas_file( cas ,
             ####
         elif( concept_type in [ 'StatusTime' ,
                                 'StatusEmploy' ,
+                                'Type' ,
                                 'TypeLiving' ] ):
             if( concept_type in spansByType ):
                 spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
-                spansByType[ concept_type ][ 'end' ][ end_offset ] = xml_id
+                spansByType[ concept_type ][ 'end' ][ xml_id ] = end_offset
             ####
             span_content = note_content[ begin_offset:end_offset ].replace( '\n' , ' ' )
             brat[ 'T' ][ xml_id ] = '{} {} {}\t{}'.format( concept_type ,
@@ -518,7 +527,7 @@ def process_cas_file( cas ,
                                                        span_content )
         if( concept_type in spansByType ):
             spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
-            spansByType[ concept_type ][ 'end' ][ end_offset ] = xml_id
+            spansByType[ concept_type ][ 'end' ][ xml_id ] = end_offset
     #################################
     for trigger_factor in [ 'Employment' ]:
         modifier_factor = 'StatusEmploy'
@@ -535,6 +544,13 @@ def process_cas_file( cas ,
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
                             'LivingStatus' ]:
         modifier_factor = 'StatusTime'
+        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+                                                             trigger_factor , modifier_factor ,
+                                                             attached_annots , brat ,
+                                                             a_count )
+    for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
+                            'Employment' ]:
+        modifier_factor = 'Type'
         attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
                                                              trigger_factor , modifier_factor ,
                                                              attached_annots , brat ,
