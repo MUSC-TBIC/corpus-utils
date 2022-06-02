@@ -277,7 +277,12 @@ def process_cas_file( cas ,
                       input_filename ):
     brat = { 'T' : {} , 'E' : {} , 'A' : {} }
     spansByType = { 'Alcohol' : {} ,
+                    'Amount' : {} ,
                     'Drug' : {} ,
+                    'Duration' : {} ,
+                    'Frequency' : {} ,
+                    'History' : {} ,
+                    'Method' : {} ,
                     'Tobacco' : {} ,
                     'Employment' : {} ,
                     'LivingStatus' : {} ,
@@ -443,9 +448,10 @@ def process_cas_file( cas ,
             brat[ 'E' ][ xml_id ] = ' '.join( rels )
             attached_annots.add( xml_id )
             ####
-        elif( concept_type in [ 'StatusTime' ,
+        elif( concept_type in [ 'Status' , 'Amount' , 'Frequency' , 'Type' , 'Method' ,
+                                'Duration' , 'History' ,
+                                'StatusTime' ,
                                 'StatusEmploy' ,
-                                'Type' ,
                                 'TypeLiving' ] ):
             if( concept_type in spansByType ):
                 spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
@@ -549,12 +555,26 @@ def process_cas_file( cas ,
                                                              attached_annots , brat ,
                                                              a_count )
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
+                            'Employment' , 'LivingStatus' ]:
+        for modifier_factor in [ 'Duration' , 'History' ]:
+            attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+                                                                 trigger_factor , modifier_factor ,
+                                                                 attached_annots , brat ,
+                                                                a_count )
+    for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
                             'Employment' ]:
         modifier_factor = 'Type'
         attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
                                                              trigger_factor , modifier_factor ,
                                                              attached_annots , brat ,
                                                              a_count )
+    for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ]:
+        for modifier_factor in [ 'Method' ,
+                                 'Amount' , 'Frequency' ]:
+            attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+                                                                 trigger_factor , modifier_factor ,
+                                                                 attached_annots , brat ,
+                                                                a_count )
     ########
     return( attached_annots , brat )
 

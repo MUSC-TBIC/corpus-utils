@@ -398,12 +398,15 @@ def process_ann_file( cas ,
                         role_type = category_val
                     else:
                         role_type = modifierMentions[ role_tag ][ 'class' ]
+                    ########
                     roleMention = modifierType( begin = modifierMentions[ role_tag ][ 'begin' ] ,
                                                 end = modifierMentions[ role_tag ][ 'end' ] ,
                                                 category = role_type )
                 elif( modifierMentions[ role_tag ][ 'role_type' ] == 'TimeMention' ):
+                    role_type = modifierMentions[ role_tag ][ 'class' ]
                     roleMention = timeMentionType( begin = modifierMentions[ role_tag ][ 'begin' ] ,
-                                                   end = modifierMentions[ role_tag ][ 'end' ] )
+                                                   end = modifierMentions[ role_tag ][ 'end' ] ,
+                                                   timeClass = role_type )
                 else:
                     print( 'Surprising role_type: {}'.format( modifierMentions[ role_tag ][ 'role_type' ] ) )
                     continue
