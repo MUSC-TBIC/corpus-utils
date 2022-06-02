@@ -397,7 +397,7 @@ def process_ann_file( cas ,
                     elif( role_tag == category_tag ):
                         role_type = category_val
                     else:
-                        role_type = 'Unknown'
+                        role_type = modifierMentions[ role_tag ][ 'class' ]
                     roleMention = modifierType( begin = modifierMentions[ role_tag ][ 'begin' ] ,
                                                 end = modifierMentions[ role_tag ][ 'end' ] ,
                                                 category = role_type )
