@@ -82,6 +82,17 @@ def initialize_arg_parser():
                          required = True ,
                          dest = "cas_root",
                          help = "Directory for output corpus in CAS XMI formatted XML" )
+    
+    parser.add_argument( '--left-window' , default = 20 ,
+                         dest = 'leftWindow' ,
+                         help = "Characters to the left of the trigger annotation to include modifier relations" )
+    parser.add_argument( '--right-window' , default = 20 ,
+                         dest = 'rightWindow' ,
+                         help = "Characters to the right of the trigger annotation to include modifier relations" )
+    parser.add_argument( '--allow-identity' ,
+                         dest = 'allowIdentity' ,
+                         help = "Allow a trigger to have a relation arc pointing back to itself" ,
+                         action = "store_true" )    
     ##
     return parser
 
@@ -112,11 +123,22 @@ def init_args():
             args.progressbar_file = sys.stderr
         elif( args.progressbar_output == 'stdout' ):
             args.progressbar_file = sys.stdout
+    ####
+    try:
+        args.leftWindow = int( args.leftWindow )
+    except ValueError:
+        log.error( 'Left window value is not an int:  "{}"'.format( args.leftWindow ) )
+    try:
+        args.rightWindow = int( args.rightWindow )
+    except ValueError:
+        log.error( 'Right window value is not an int:  "{}"'.format( args.rightWindow ) )
     ##
     return args
 
 
 metadata_typeString = 'org.apache.ctakes.typesystem.type.structured.Metadata'
+noteNlp_typeString = 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties'
+factRelationship_typeString = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TableProperties'
 
 
 ## TODO - make this easily configurable from the command line
@@ -138,7 +160,7 @@ def loadTypesystem( args ):
     ############
     ## ... for OMOP CDM v5.3 NOTE_NLP table properties
     ##     https://ohdsi.github.io/CommonDataModel/cdm53.html#NOTE_NLP
-    NoteNlp = typesystem.create_type( name = 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties' ,
+    NoteNlp = typesystem.create_type( name = noteNlp_typeString ,
                                       supertypeName = 'uima.tcas.Annotation' )
     typesystem.create_feature( domainType = NoteNlp ,
                                name = 'note_nlp_id' ,
@@ -190,13 +212,78 @@ def loadTypesystem( args ):
                                name = 'term_modifiers' ,
                                description = '' ,
                                rangeType = 'uima.cas.String' )
+        ############
+    ## ... for OMOP CDM v5.3 FACT_RELATIONSHIP table properties
+    ##     https://ohdsi.github.io/CommonDataModel/cdm53.html#FACT_RELATIONSHIP
+    FactRelationship = typesystem.create_type( name = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TableProperties' ,
+                                               supertypeName = 'uima.tcas.Annotation' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'domain_concept_id_1' ,
+                               description = 'The CONCEPT id for the appropriate scoping domain' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'fact_id_1' ,
+                               description = 'The id for the first fact' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'domain_concept_id_2' ,
+                               description = 'The CONCEPT id for the appropriate scoping domain' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'fact_id_2' ,
+                               description = 'The id for the second fact' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'relationship_concept_id' ,
+                               description = 'This id for the relationship held between the two facts' ,
+                               rangeType = 'uima.cas.Integer' )
     ####
     return( typesystem )
 
 
+relPairs = { 'IsTriggerFor' : 'HasTrigger' ,
+             'HasStatus' : 'IsStatusFor' ,
+             'HasStatusEmploy' : 'IsStatusEmployFor' ,
+             'HasStatusTime' : 'IsStatusTimeFor' ,
+             'HasDuration' : 'IsDurationFor' ,
+             'HasHistory' : 'IsHistoryFor' ,
+             'HasType' : 'IsTypeFor' ,
+             'HasTypeLiving' : 'IsTypeLivingFor' ,
+             'HasMethod' : 'IsMethodFor' ,
+             'HasAmount' : 'IsAmountFor' ,
+             'HasFrequency' : 'IsFrequencyFor' 
+            }
+relIds = {}
+relNames = {}
+count = 0
+## Make sure all relations are symmetrical
+## TODO - add relIds mapping to metadata in CAS XMI
+for relA in [ 'IsTriggerFor' ,
+              'HasStatus' ,
+              'HasStatusEmploy' ,
+              'HasStatusTime' ,
+              'HasDuration' ,
+              'HasHistory' , 
+              'HasType' ,
+              'HasTypeLiving' ,
+              'HasMethod' ,
+              'HasAmount' ,
+              'HasFrequency' ]:
+    count += 1
+    relIds[ relA ] = count
+    relNames[ count ] = relA
+    count += 1
+    relIds[ relPairs[ relA ] ] = count
+    relNames[ count ] = relPairs[ relA ]
+    relPairs[ relPairs[ relA ] ] = relA
+
+
 def create_relations( spansByType , spanValues ,
                       trigger_factor , modifier_factor ,
-                      attached_annots , brat , a_count ):
+                      attached_annots , brat ,
+                      t_count , a_count ,
+                      left_window , right_window ,
+                      allow_identity = False ):
     ########
     for begin_trigger in spansByType[ trigger_factor ][ 'begin' ]:
         trigger_id = spansByType[ trigger_factor ][ 'begin' ][ begin_trigger ]
@@ -220,18 +307,18 @@ def create_relations( spansByType , spanValues ,
                                                     'past' ,
                                                     'future' ] ) ):
                 continue
-            if( end_modifier <= begin_trigger ):
+            if( left_window > 0 and end_modifier <= begin_trigger ):
                 distance = begin_trigger - end_modifier
-                if( distance > 50 ):
+                if( distance > left_window ):
                     next
                 elif( prev_closest[ modifier_factor ][ 'distance' ] is None or
                       distance < prev_closest[ modifier_factor ][ 'distance' ] ):
                     prev_closest[ modifier_factor ][ 'distance' ] = distance
                     ##prev_closest[ modifier_factor ][ 't_id' ] = trigger_id
                     prev_closest[ modifier_factor ][ 'm_id' ] = modifier_id
-            elif( end_trigger <= begin_modifier ):
+            elif( right_window > 0 and end_trigger <= begin_modifier ):
                 distance = begin_modifier - end_trigger
-                if( distance > 50 ):
+                if( distance > right_window ):
                     next
                 elif( prev_closest[ modifier_factor ][ 'distance' ] is None or
                       distance < prev_closest[ modifier_factor ][ 'distance' ] ):
@@ -264,17 +351,66 @@ def create_relations( spansByType , spanValues ,
                 brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusTimeVal' ,
                                                              modifier_id ,
                                                              spanValues[ modifier_id ] )
-    return( attached_annots , brat , a_count )
+        elif( allow_identity ):
+            if( ( trigger_factor in [ 'Alcohol' , 'Drug' , 'Tobacco' ] and
+                  modifier_factor in [ 'StatusTime' , 'Type' ] ) or
+                ( trigger_factor in [ 'Employment' ] and
+                  modifier_factor in [ 'StatusEmploy' , 'Type' ] ) or
+                ( trigger_factor in [ 'Alcohol' , 'Drug' , 'Tobacco' ] and
+                 modifier_factor in [ 'Method' ] ) ):
+                t_count += 1
+                brat[ 'T' ][ t_count ] = '{} {} {}\t{}'.format( modifier_factor ,
+                                                                begin_trigger , end_trigger ,
+                                                                brat[ 'T' ][ trigger_id ].split( '\t' )[ 1 ] )
+                attached_annots.add( t_count )
+                rels = brat[ 'E' ][ trigger_id ].split( ' ' )
+                rels.append( '{}:T{}'.format( modifier_factor , t_count ) )
+                brat[ 'E' ][ trigger_id ] = ' '.join( rels )
+                if( trigger_factor in [ 'Alcohol' , 'Drug' , 'Tobacco' ] and
+                    modifier_factor in [ 'StatusTime' ] ):
+                    a_count += 1
+                    brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusTimeVal' ,
+                                                                 t_count ,
+                                                                 'none' )
+                if( trigger_factor in [ 'Employment' ] and
+                    modifier_factor in [ 'StatusEmploy' ] ):
+                    a_count += 1
+                    brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusEmployVal' ,
+                                                                 t_count ,
+                                                                 'unemployed' )
+    return( attached_annots , brat , t_count , a_count )
 
 
-noteNlp_typeString = 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties'
+def extractRelationArcs( cas ):
+    relationArcs = {}
+    for annot in cas.select( factRelationship_typeString ):
+        ########
+        left_id = annot.fact_id_1
+        right_id = annot.fact_id_2
+        relationship_id = annot.relationship_concept_id
+        ## TODO - make this more easily generalizable
+        relationship_type = relNames[ relationship_id ]
+        relationship_type = re.sub( r'^Has' , '' , relationship_type )
+        relationship_type = re.sub( r'^Is' , '' , relationship_type )
+        relationship_type = re.sub( r'For$' , '' , relationship_type )
+        if( left_id not in relationArcs ):
+            relationArcs[ left_id ] = {}
+        if( relationship_type not in relationArcs[ left_id ] ):
+            relationArcs[ left_id ][ relationship_type ] = set()
+        ####
+        relationArcs[ left_id ][ relationship_type ].add( right_id )
+    return( relationArcs )
+
 
 #############################################
 ## core functions
 #############################################
 
 def process_cas_file( cas ,
-                      input_filename ):
+                      input_filename ,
+                      left_window ,
+                      right_window ,
+                      allow_identity ):
     brat = { 'T' : {} , 'E' : {} , 'A' : {} }
     spansByType = { 'Alcohol' : {} ,
                     'Amount' : {} ,
@@ -369,14 +505,18 @@ def process_cas_file( cas ,
     attached_annots = set()
     orphanModifiers = []
     eventRelations = {}
+    relationArcs = extractRelationArcs( cas )
     a_count = 0
     t_count = 0
-    for annot in cas.select( 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties' ):
+    for annot in cas.select( noteNlp_typeString ):
         xml_id = annot[ 'note_nlp_id' ]
         ## TODO - we need to fix this upstream
         if( xml_id is None ):
             t_count += 1
             xml_id = t_count
+        else:
+            if( t_count < xml_id):
+                t_count = xml_id
         tag_id = 'T{}'.format( xml_id )
         begin_offset = annot[ 'offset' ]
         lexical_variant = annot[ 'lexical_variant' ]
@@ -428,23 +568,26 @@ def process_cas_file( cas ,
                 term_temporal = None
             ####
             rels = [ '{}:{}'.format( concept_type , tag_id ) ]
-            for mod_pair in term_modifiers:
-                mod_key , mod_value = mod_pair.split( '=' )
-                if( mod_key in [ 'Status' , 'Amount' , 'Frequency' , 'Type' , 'Method' ,
-                                 'Duration' , 'History' ] ):
-                    if( mod_key == 'Status' and
-                        concept_type in [ 'Alcohol' , 'Drug' , 'Tobacco' , 'LivingStatus' ] ):
-                        eventRelations[ int( mod_value ) ] = 'StatusTime'
-                    else:
-                        eventRelations[ int( mod_value ) ] = mod_key
-                    rels.append( '{}:T{}'.format( mod_key , mod_value ) )
-                    if( mod_key == 'Status' and
-                        concept_type in [ 'Alcohol' , 'Drug' , 'Tobacco' ,
-                                         'LivingStatus' ] ):
-                        a_count += 1
-                        brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusTimeVal' ,
-                                                                     mod_value ,
-                                                                     term_temporal )
+            if( xml_id in relationArcs ):
+                for mod_key in relationArcs[ xml_id ]:
+                    for mod_value in relationArcs[ xml_id ][ mod_key ]:
+                        if( mod_key in [ 'Status' , 'Amount' , 'Frequency' , 'Type' , 'Method' ,
+                                         'Duration' , 'History' ] ):
+                            if( mod_key == 'Status' and
+                                concept_type in [ 'Alcohol' , 'Drug' , 'Tobacco' , 'LivingStatus' ] ):
+                                eventRelations[ int( mod_value ) ] = 'StatusTime'
+                            else:
+                                eventRelations[ int( mod_value ) ] = mod_key
+                            rels.append( '{}:T{}'.format( mod_key , mod_value ) )
+                            if( mod_value not in attached_annots ):
+                                attached_annots.add( mod_value )
+                                if( mod_key == 'Status' and
+                                    concept_type in [ 'Alcohol' , 'Drug' , 'Tobacco' ,
+                                                      'LivingStatus' ] ):
+                                    a_count += 1
+                                    brat[ 'A' ][ a_count ] = '{} T{} {}'.format( 'StatusTimeVal' ,
+                                                                                 mod_value ,
+                                                                                 term_temporal )
             brat[ 'E' ][ xml_id ] = ' '.join( rels )
             attached_annots.add( xml_id )
             ####
@@ -463,8 +606,38 @@ def process_cas_file( cas ,
                                                            end_offset ,
                                                            span_content )
         else:
-            ##print( '{}'.format( annot ) )
-            orphanModifiers.append( annot )
+            source_concept = annot[ 'note_nlp_source_concept_id' ]
+            if( source_concept in [ 'employed' ,
+                                    'unemployed' ,
+                                    'retired' ,
+                                    'on_disability' ,
+                                    'student' ,
+                                    'homemaker' ] ):
+                concept_type = 'StatusEmploy'
+            elif( source_concept in [ 'alone' ,
+                                      'with_family' ,
+                                      'with_others' ,
+                                      'homeless' ] ):
+                concept_type = 'TypeLiving'
+            elif( source_concept in [ 'none' ,
+                                      'current' ,
+                                      'past' ] ):
+                concept_type = 'StatusTime'
+            else:
+                print( 'Orphan:\t{}'.format( annot ) )
+                orphanModifiers.append( annot )
+                continue
+            concept_value = source_concept
+            spanValues[ xml_id ] = concept_value
+            if( concept_type in spansByType ):
+                spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
+                spansByType[ concept_type ][ 'end' ][ xml_id ] = end_offset
+            ####
+            span_content = note_content[ begin_offset:end_offset ].replace( '\n' , ' ' )
+            brat[ 'T' ][ xml_id ] = '{} {} {}\t{}'.format( concept_type ,
+                                                           begin_offset ,
+                                                           end_offset ,
+                                                           span_content )
         ## For tobacco use alone, we could set the StatusTimeVal from
         ## the anchor but for all others we need to use the event
         ## relations so we'll skip it here, too.
@@ -502,10 +675,10 @@ def process_cas_file( cas ,
         else:
             end_offset = int( begin_offset ) + len( lexical_variant )
         span_content = note_content[ begin_offset:end_offset ].replace( '\n' , ' ' )
+        source_concept = annot[ 'note_nlp_source_concept_id' ]
         if( xml_id in eventRelations ):
             concept_type = eventRelations[ xml_id ]
         else:
-            source_concept = annot[ 'note_nlp_source_concept_id' ]
             if( source_concept in [ 'employed' ,
                                     'unemployed' ,
                                     'retired' ,
@@ -537,44 +710,67 @@ def process_cas_file( cas ,
     #################################
     for trigger_factor in [ 'Employment' ]:
         modifier_factor = 'StatusEmploy'
-        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+        attached_annots , brat , t_count , a_count = create_relations( spansByType , spanValues ,
                                                              trigger_factor , modifier_factor ,
                                                              attached_annots , brat ,
-                                                             a_count )
+                                                             t_count , a_count ,
+                                                             left_window ,
+                                                             right_window ,
+                                                             allow_identity = allow_identity )
     for trigger_factor in [ 'LivingStatus' ]:
         modifier_factor = 'TypeLiving'
-        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+        attached_annots , brat , t_count , a_count = create_relations( spansByType , spanValues ,
                                                              trigger_factor , modifier_factor ,
                                                              attached_annots , brat ,
-                                                             a_count )
+                                                             t_count , a_count ,
+                                                             left_window ,
+                                                             right_window )
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
                             'LivingStatus' ]:
         modifier_factor = 'StatusTime'
-        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+        attached_annots , brat , t_count , a_count = create_relations( spansByType , spanValues ,
                                                              trigger_factor , modifier_factor ,
                                                              attached_annots , brat ,
-                                                             a_count )
+                                                             t_count , a_count ,
+                                                             left_window ,
+                                                             right_window ,
+                                                             allow_identity = allow_identity )
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
                             'Employment' , 'LivingStatus' ]:
         for modifier_factor in [ 'Duration' , 'History' ]:
-            attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+            attached_annots , brat , t_count , a_count = create_relations( spansByType , spanValues ,
                                                                  trigger_factor , modifier_factor ,
                                                                  attached_annots , brat ,
-                                                                a_count )
+                                                                 t_count , a_count ,
+                                                                 left_window ,
+                                                                 right_window )
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ,
                             'Employment' ]:
         modifier_factor = 'Type'
-        attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+        attached_annots , brat , t_count , a_count = create_relations( spansByType , spanValues ,
                                                              trigger_factor , modifier_factor ,
                                                              attached_annots , brat ,
-                                                             a_count )
+                                                             t_count , a_count ,
+                                                             left_window ,
+                                                             right_window ,
+                                                             allow_identity = allow_identity )
     for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ]:
-        for modifier_factor in [ 'Method' ,
-                                 'Amount' , 'Frequency' ]:
-            attached_annots , brat , a_count = create_relations( spansByType , spanValues ,
+        for modifier_factor in [ 'Amount' , 'Frequency' ]:
+            attached_annots , brat , t_count , a_count = create_relations( spansByType , spanValues ,
                                                                  trigger_factor , modifier_factor ,
                                                                  attached_annots , brat ,
-                                                                a_count )
+                                                                 t_count , a_count ,
+                                                                 left_window ,
+                                                                 right_window )
+    for trigger_factor in [ 'Alcohol', 'Drug' , 'Tobacco' ]:
+        for modifier_factor in [ 'Method' ]:
+            attached_annots , brat , t_count , a_count = create_relations( spansByType , spanValues ,
+                                                                 trigger_factor , modifier_factor ,
+                                                                 attached_annots , brat ,
+                                                                 t_count , a_count ,
+                                                                 left_window ,
+                                                                 right_window ,
+                                                                allow_identity = allow_identity )
     ########
     return( attached_annots , brat )
 
@@ -603,7 +799,10 @@ if __name__ == "__main__":
             with open( txt_path , 'w' ) as wp:
                 note_content = cas.sofa_string
                 wp.write( '{}'.format( note_content ) )
-            attached_annots , brat = process_cas_file( cas , note_content )
+            attached_annots , brat = process_cas_file( cas , plain_filename ,
+                                                       args.leftWindow ,
+                                                       args.rightWindow ,
+                                                       args.allowIdentity )
             with open( brat_path , 'w' ) as wp:
                 for key_type in [ 'T' , 'E' , 'A' ]:
                     for key in sorted( brat[ key_type ] ):

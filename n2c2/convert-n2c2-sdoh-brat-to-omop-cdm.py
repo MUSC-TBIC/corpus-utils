@@ -53,6 +53,16 @@ def initialize_arg_parser():
                          help = "print more information" ,
                          action = "store_true" )
 
+    parser.add_argument( '--allow-relations' ,
+                         dest = 'allowRels' ,
+                         help = "Allow relation arcs in source documents to be passed through (Default. Including is a noop)" ,
+                         action = "store_true" )
+
+    parser.add_argument( '--no-relations' ,
+                         dest = 'noRels' ,
+                         help = "Do not create any relation arcs between concepts" ,
+                         action = "store_true" )
+
     parser.add_argument( '--progressbar-output' ,
                          dest = 'progressbar_output' ,
                          default = 'stderr' ,
@@ -85,6 +95,10 @@ def initialize_arg_parser():
     parser.add_argument( '--lxcn-root' , default = None ,
                          dest = "lxcn_root",
                          help = "Directory for output tab-delimited lexicon files" )
+
+    parser.add_argument( '--gap-file' , default = None ,
+                         dest = "gapFile",
+                         help = "CSV file for listing distances between triggers and modifiers" )
     ##
     return parser
 
@@ -116,6 +130,27 @@ def init_args():
         elif( args.progressbar_output == 'stdout' ):
             args.progressbar_file = sys.stdout
     ##
+    if( args.cas_root is not None and
+        not os.path.exists( args.cas_root ) ):
+        try:
+            os.makedirs( args.cas_root )
+        except OSError as e:
+            log.error( 'OSError caught while trying to create CAS XMI output folder:  {}'.format( e ) )
+        except IOError as e:
+            log.error( 'IOError caught while trying to create CAS XMI output folder:  {}'.format( e ) )
+    if( args.lxcn_root is not None and
+        not os.path.exists( args.lxcn_root ) ):
+        try:
+            os.makedirs( args.lxcn_root )
+        except OSError as e:
+            log.error( 'OSError caught while trying to create lexicon output folder:  {}'.format( e ) )
+        except IOError as e:
+            log.error( 'IOError caught while trying to create lexicon output folder:  {}'.format( e ) )
+    ####
+    if( args.gapFile is not None ):
+        with open( args.gapFile , 'w' ) as fp:
+            fp.write( '{}\t{}\t{}\n'.format( 'Trigger' , 'Relation' , 'Distance' ) )
+    ########
     return args
 
 
@@ -225,16 +260,52 @@ factRelationship_typeString = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TablePro
 #############################################
 
 lexicon = {}
+relPairs = { 'IsTriggerFor' : 'HasTrigger' ,
+             'HasStatus' : 'IsStatusFor' ,
+             'HasStatusEmploy' : 'IsStatusEmployFor' ,
+             'HasStatusTime' : 'IsStatusTimeFor' ,
+             'HasDuration' : 'IsDurationFor' ,
+             'HasHistory' : 'IsHistoryFor' ,
+             'HasType' : 'IsTypeFor' ,
+             'HasTypeLiving' : 'IsTypeLivingFor' ,
+             'HasMethod' : 'IsMethodFor' ,
+             'HasAmount' : 'IsAmountFor' ,
+             'HasFrequency' : 'IsFrequencyFor' 
+            }
+relIds = {}
+count = 0
+## Make sure all relations are symmetrical
+## TODO - add relIds mapping to metadata in CAS XMI
+for relA in [ 'IsTriggerFor' ,
+              'HasStatus' ,
+              'HasStatusEmploy' ,
+              'HasStatusTime' ,
+              'HasDuration' ,
+              'HasHistory' , 
+              'HasType' ,
+              'HasTypeLiving' ,
+              'HasMethod' ,
+              'HasAmount' ,
+              'HasFrequency' ]:
+    count += 1
+    relIds[ relA ] = count
+    count += 1
+    relIds[ relPairs[ relA ] ] = count
+    relPairs[ relPairs[ relA ] ] = relA
 
 def process_ann_file( cas ,
                       input_filename ,
                       note_total ,
-                      note_count ):
+                      note_count ,
+                      skip_relations = False ,
+                      gap_file = None ):
+    ########
     spans = {}
     ##
     FSArray = typesystem.get_type( 'uima.cas.FSArray' )
     
     noteNlpType = typesystem.get_type( noteNlp_typeString )
+    factRelationshipType = typesystem.get_type( factRelationship_typeString )
     
     eventConcepts = {}
     ####################################################
@@ -299,7 +370,7 @@ def process_ann_file( cas ,
     ####
     eventMentions = {}
     modifierMentions = {}
-    
+    relationArcs = {}
     with open( input_filename , 'r' ) as fp:
         try:
             note_id = int( os.path.basename( input_filename )[ 0:-4 ] )
@@ -407,12 +478,65 @@ def process_ann_file( cas ,
             matches = re.match( r'^(E[0-9]+)\s+([A-Za-z]+):(T[0-9]+)\s+(.*)' ,
                                 line )
             if( matches ):
+                trigger_type = matches.group( 2 )
                 found_tag = matches.group( 3 )
+                trigger_id = found_tag.strip( 'T' )
                 rels = matches.group( 4 ).split( ' ' )
                 for relation in rels:
                     rel_entity , rel_tag = relation.split( ':' )
+                    rel_id = rel_tag.strip( 'T' )
+                    ## TODO - handle multiple relations arcs for a
+                    ## given type (e.g., "Amount", "Amount2",
+                    ## "Amount3", etc.)
                     rel_entity = rel_entity.strip( '0123456789' )
                     eventMentions[ found_tag ][ rel_entity ] = rel_tag
+                    ########
+                    if( gap_file is not None ):
+                        try:
+                            begin_trigger = eventMentions[ 'T{}'.format( trigger_id ) ][ 'begin' ]
+                            end_trigger = eventMentions[ 'T{}'.format( trigger_id ) ][ 'end' ]
+                            begin_modifier = modifierMentions[ 'T{}'.format( rel_id ) ][ 'begin' ]
+                            end_modifier = modifierMentions[ 'T{}'.format( rel_id ) ][ 'end' ]
+                            if( begin_trigger == begin_modifier ):
+                                distance = 0
+                            elif( end_trigger < begin_modifier ):
+                                distance = begin_modifier - end_trigger
+                            else:
+                                distance = begin_trigger - end_modifier
+                            with open( gap_file , 'a' ) as fp:
+                                fp.write( '{}\t{}\t{}\n'.format( trigger_type , rel_entity , distance ) )
+                        except KeyError as e:
+                            ## we can skip it
+                            1
+                    ########
+                    if( trigger_id not in relationArcs ):
+                        relationArcs[ trigger_id ] = {}
+                    if( rel_entity not in relationArcs[ trigger_id ] ):
+                        relationArcs[ trigger_id ][ rel_entity ] = set()
+                    if( rel_id not in relationArcs ):
+                        relationArcs[ rel_id ] = {}
+                    if( rel_entity not in relationArcs[ rel_id ] ):
+                        relationArcs[ rel_id ][ rel_entity ] = set()
+                    ####
+                    relationArcs[ trigger_id ][ rel_entity ].add( rel_id )
+                    relationArcs[ rel_id ][ rel_entity ].add( trigger_id )
+                    ## TODO - make look-up in real OMOP CDM concept table easier
+                    triggerRelType = relIds[ 'Has{}'.format( rel_entity ) ]
+                    relTriggerType = relIds[ 'Is{}For'.format( rel_entity ) ]
+                    if( not skip_relations ):
+                        triggerRelRelation = factRelationshipType( domain_concept_id_1 = 1 ,
+                                                                   fact_id_1 = trigger_id ,
+                                                                   domain_concept_id_2 = 2 ,
+                                                                   fact_id_2 = rel_id ,
+                                                                   relationship_concept_id = triggerRelType )
+                        cas.add( triggerRelRelation )
+                        relTriggerType = relIds[ 'Is{}For'.format( rel_entity ) ]
+                        relTriggerRelation = factRelationshipType( domain_concept_id_2 = 1 ,
+                                                                   fact_id_2 = trigger_id ,
+                                                                   domain_concept_id_1 = 2 ,
+                                                                   fact_id_1 = rel_id ,
+                                                                   relationship_concept_id = relTriggerType )
+                        cas.add( relTriggerRelation )
                 continue
         ## We're done extracting all spans and relations
         for event_tag in eventMentions:
@@ -471,10 +595,11 @@ def process_ann_file( cas ,
                 role_id = role_tag.strip( 'T' )
                 role_cui = ''
                 role_modifiers = []
-                role_modifiers.append( '{}={}'.format( 'Trigger' ,
-                                                       note_nlp_id ) )
-                modifiers.append( '{}={}'.format( role_type ,
-                                                  role_id ) )
+                if( not skip_relations ):
+                    role_modifiers.append( '{}={}'.format( 'Trigger' ,
+                                                           note_nlp_id ) )
+                    modifiers.append( '{}={}'.format( role_type ,
+                                                      role_id ) )
                 if( span_class in [ 'Employment' ] ):
                     if( role_type == 'Status' ):
                         role_cui = eventConcepts[ category_val ]
@@ -482,6 +607,7 @@ def process_ann_file( cas ,
                                                                category_val ) )
                 elif( span_class in [ 'LivingStatus' ] ):
                     if( role_type == 'Status' ):
+                        role_cui = modifierMentions[ role_tag ][ 'StatusTimeVal' ]
                         role_modifiers.append( '{}={}'.format( 'StatusVal' ,
                                                                aspect_val ) )
                     elif( role_type == 'Type' ):
@@ -493,22 +619,6 @@ def process_ann_file( cas ,
                         role_cui = eventConcepts[ aspect_val ]
                         role_modifiers.append( '{}={}'.format( 'StatusVal' ,
                                                                aspect_val ) )
-                if( modifierMentions[ role_tag ][ 'role_type' ] in [ 'Modifier' , 'TimeMention' ] ):
-                    roleMention = noteNlpType( note_nlp_id = role_id ,
-                                               note_id = note_id ,
-                                               begin = modifierMentions[ role_tag ][ 'begin' ] ,
-                                               end = modifierMentions[ role_tag ][ 'end' ] ,
-                                               offset = modifierMentions[ role_tag ][ 'begin' ] ,
-                                               lexical_variant = modifierMentions[ role_tag ][ 'text' ] ,
-                                               nlp_system = 'Reference Standard' ,
-                                               note_nlp_source_concept_id = role_cui ,
-                                               ##term_exists = '' ,
-                                               ##term_temporal = '' ,
-                                               term_modifiers = ';'.join( role_modifiers ) )
-                else:
-                    print( 'Surprising role_type: {}'.format( modifierMentions[ role_tag ][ 'role_type' ] ) )
-                    continue
-                cas.add( roleMention )
             ## Trigger Event Mention
             anEventMention = noteNlpType( note_nlp_id = note_nlp_id ,
                                           note_id = note_id ,
@@ -522,6 +632,37 @@ def process_ann_file( cas ,
                                           term_temporal = term_temporal ,
                                           term_modifiers = ';'.join( modifiers ) )
             cas.add( anEventMention )
+        ######## Now tackel the modifiers
+        for role_tag in modifierMentions:
+            role_type = modifierMentions[ role_tag ][ 'class' ]
+            role_id = role_tag.strip( 'T' )
+            role_modifiers = []
+            begin_offset = modifierMentions[ role_tag ][ 'begin' ]
+            end_offset = modifierMentions[ role_tag ][ 'end' ]
+            text_span = modifierMentions[ role_tag ][ 'text' ]
+            cui_source = None
+            if( role_type == 'StatusTime' ):
+                cui_source = 'StatusTimeVal'
+            elif( role_type == 'StatusEmploy' ):
+                cui_source = 'StatusEmployVal'
+            elif( role_type == 'TypeLiving' ):
+                cui_source = 'TypeLivingVal'
+            if( cui_source is None ):
+                role_cui = role_type
+            else:
+                role_cui = modifierMentions[ role_tag ][ cui_source ]
+            roleMention = noteNlpType( note_nlp_id = role_id ,
+                                       note_id = note_id ,
+                                       begin = begin_offset ,
+                                       end = end_offset ,
+                                       offset = begin_offset ,
+                                       lexical_variant = text_span ,
+                                       nlp_system = 'Reference Standard' ,
+                                       note_nlp_source_concept_id = role_cui ,
+                                       ##term_exists = '' ,
+                                       ##term_temporal = '' ,
+                                       term_modifiers = ';'.join( role_modifiers ) )
+            cas.add( roleMention )
     #################################
     return( cas )
 
@@ -556,7 +697,9 @@ if __name__ == "__main__":
         cas = process_ann_file( cas ,
                                 os.path.join( args.brat_root , brat_filename ) ,
                                 note_total = note_total ,
-                                note_count = note_count )
+                                note_count = note_count ,
+                                skip_relations = args.noRels ,
+                                gap_file = args.gapFile )
         if( args.cas_root is not None ):
             cas_path = os.path.join( args.cas_root ,
                                      '{}.xmi'.format( plain_filename ) )
@@ -572,7 +715,6 @@ if __name__ == "__main__":
             with open( os.path.join( args.lxcn_root ,
                                      '{}.lxcn'.format( entity ) ) , 'w' ) as fp:
                 count = 0
-                print( '{}'.format( entity ) )
                 for lexeme in sorted( lexicon[ entity ] ):
                     prefix = '\t'
                     ambiguity = []
