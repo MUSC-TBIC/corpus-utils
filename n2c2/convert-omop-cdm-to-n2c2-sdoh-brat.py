@@ -359,9 +359,15 @@ def create_relations( spansByType , spanValues ,
                 ( trigger_factor in [ 'Alcohol' , 'Drug' , 'Tobacco' ] and
                  modifier_factor in [ 'Method' ] ) ):
                 t_count += 1
+                span_content = brat[ 'T' ][ trigger_id ].split( '\t' )[ 1 ]
+                orig = span_content
+                span_content.strip()
+                span_content = re.sub( r"\s+" , ' ' , span_content )
+                if( False and t_count == 8 ):
+                    print( '372|{}| -> |{}|'.format( orig , span_content ) )
                 brat[ 'T' ][ t_count ] = '{} {} {}\t{}'.format( modifier_factor ,
                                                                 begin_trigger , end_trigger ,
-                                                                brat[ 'T' ][ trigger_id ].split( '\t' )[ 1 ] )
+                                                                span_content )
                 attached_annots.add( t_count )
                 rels = brat[ 'E' ][ trigger_id ].split( ' ' )
                 rels.append( '{}:T{}'.format( modifier_factor , t_count ) )
@@ -548,7 +554,12 @@ def process_cas_file( cas ,
                               'LivingStatus' , 'Employment' ] ):
             ####
             eventRelations[ xml_id ] = {}
-            span_content = note_content[ begin_offset:end_offset ].replace( '\n' , ' ' )
+            span_content = note_content[ begin_offset:end_offset ]
+            orig = span_content
+            span_content.strip()
+            span_content = re.sub( r"\s+" , ' ' , span_content )
+            if( False and t_count == 8 ):
+                print( '570|{}| -> |{}|'.format( orig , span_content ) )
             brat[ 'T' ][ xml_id ] = '{} {} {}\t{}'.format( concept_type ,
                                                            begin_offset ,
                                                            end_offset ,
@@ -600,7 +611,12 @@ def process_cas_file( cas ,
                 spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
                 spansByType[ concept_type ][ 'end' ][ xml_id ] = end_offset
             ####
-            span_content = note_content[ begin_offset:end_offset ].replace( '\n' , ' ' )
+            span_content = note_content[ begin_offset:end_offset ]
+            orig = span_content
+            span_content.strip()
+            span_content = re.sub( r"\s+" , ' ' , span_content )
+            if( False and t_count == 8 ):
+                print( '627|{}| -> |{}|'.format( orig , span_content ) )
             brat[ 'T' ][ xml_id ] = '{} {} {}\t{}'.format( concept_type ,
                                                            begin_offset ,
                                                            end_offset ,
@@ -633,7 +649,13 @@ def process_cas_file( cas ,
                 spansByType[ concept_type ][ 'begin' ][ begin_offset ] = xml_id
                 spansByType[ concept_type ][ 'end' ][ xml_id ] = end_offset
             ####
-            span_content = note_content[ begin_offset:end_offset ].replace( '\n' , ' ' )
+            span_content = note_content[ begin_offset:end_offset ]
+            orig = span_content
+            span_content.strip( r"\t" )
+            span_content = re.sub( r"^\s+" , '' , span_content )
+            span_content = re.sub( r"\s+" , ' ' , span_content )
+            if( False and t_count == 8 ):
+                print( '666|{}| -> |{}|'.format( orig , span_content ) )
             brat[ 'T' ][ xml_id ] = '{} {} {}\t{}'.format( concept_type ,
                                                            begin_offset ,
                                                            end_offset ,
@@ -674,7 +696,12 @@ def process_cas_file( cas ,
             end_offset = annot[ 'end' ]
         else:
             end_offset = int( begin_offset ) + len( lexical_variant )
-        span_content = note_content[ begin_offset:end_offset ].replace( '\n' , ' ' )
+        span_content = note_content[ begin_offset:end_offset ]
+        orig = span_content
+        span_content.strip()
+        span_content = re.sub( r"\s+" , ' ' , span_content )
+        if( False and t_count == 8 ):
+            print( '713|{}| -> |{}|'.format( orig , span_content ) )
         source_concept = annot[ 'note_nlp_source_concept_id' ]
         if( xml_id in eventRelations ):
             concept_type = eventRelations[ xml_id ]
@@ -811,3 +838,7 @@ if __name__ == "__main__":
                             key in attached_annots ):
                             wp.write( '{}{}\t{}\n'.format( key_type , key ,
                                                            brat[ key_type ][ key ] ) )
+                        elif( key_type == 'T' and
+                              key not in attached_annots ):
+                            ## TODO - log these
+                            1

@@ -53,6 +53,10 @@ def initialize_arg_parser():
                          help = "print more information" ,
                          action = "store_true" )
 
+    parser.add_argument( '--append' ,
+                         help = "Append new lexical entries to pre-existing lexicons" ,
+                         action = "store_true" )
+
     parser.add_argument( '--allow-relations' ,
                          dest = 'allowRels' ,
                          help = "Allow relation arcs in source documents to be passed through (Default. Including is a noop)" ,
@@ -95,6 +99,16 @@ def initialize_arg_parser():
     parser.add_argument( '--lxcn-root' , default = None ,
                          dest = "lxcn_root",
                          help = "Directory for output tab-delimited lexicon files" )
+
+    parser.add_argument( '--normalization' ,
+                         dest = 'normalization' ,
+                         default = 'lowercase' ,
+                         choices = [ 'none' , 'lowercase' , 'digits' ] ,
+                         help = "Normalization process to perform on lexical entries" )
+
+    parser.add_argument( '--min-term-length' , default = 0 ,
+                         dest = 'minTermLength' ,
+                         help = "Minimum character count for a lexical item to be included in generated lexicons (0 means to allow all terms)" )
 
     parser.add_argument( '--gap-file' , default = None ,
                          dest = "gapFile",
@@ -150,6 +164,11 @@ def init_args():
     if( args.gapFile is not None ):
         with open( args.gapFile , 'w' ) as fp:
             fp.write( '{}\t{}\t{}\n'.format( 'Trigger' , 'Relation' , 'Distance' ) )
+    ####
+    try:
+        args.minTermLength = int( args.minTermLength )
+    except ValueError:
+        log.error( 'Min term length value is not an int:  "{}"'.format( args.minTermLength ) )
     ########
     return args
 
@@ -245,10 +264,24 @@ def loadTypesystem( args ):
     return( typesystem )
 
 
-def normalizeTerm( word ):
-    lemma = re.sub( r' \d+ ' , ' \\\d+ ' , word.lower() )
-    lemma = re.sub( r'^\d+ ' , '\\\d+ ' , lemma )
-    lemma = re.sub( r' \d+$' , ' \\\d+' , lemma )
+def normalizeTerm( word , normalization = 'lowercase' ):
+    lemma = word
+    if( normalization in [ 'lowercase' , 'digits' ] ):
+        lemma = lemma.lower()
+    if( normalization in [ 'digits' ] ):
+        ## Escape all special regex characters
+        lemma = re.sub( '\+' , '.' , lemma )
+        lemma = re.sub( '\?' , '.' , lemma )
+        lemma = re.sub( '\*' , '.' , lemma )
+        lemma = re.sub( '\[' , '.' , lemma )
+        lemma = re.sub( '\]' , '.' , lemma )
+        lemma = re.sub( '\(' , '.' , lemma )
+        lemma = re.sub( '\)' , '.' , lemma )
+        ## Replace digits with \d+ regex
+        lemma = re.sub( r' \d+ ' , ' \\\d+ ' , lemma )
+        lemma = re.sub( r' \d+ ' , ' \\\d+ ' , lemma )
+        lemma = re.sub( r'^\d+ ' , '\\\d+ ' , lemma )
+        lemma = re.sub( r' \d+$' , ' \\\d+' , lemma )
     return( lemma )
 
 
@@ -297,6 +330,8 @@ def process_ann_file( cas ,
                       input_filename ,
                       note_total ,
                       note_count ,
+                      normalization = 'lowercase' ,
+                      min_term_length = 0 ,
                       skip_relations = False ,
                       gap_file = None ):
     ########
@@ -406,14 +441,18 @@ def process_ann_file( cas ,
                 middle_offset = matches.group( 4 )
                 end_offset = int( matches.group( 5 ) )
                 text_span = matches.group( 6 )
-                lc_text_span = normalizeTerm( text_span )
+                lc_text_span = normalizeTerm( text_span ,
+                                              normalization = normalization )
                 if( found_tag not in lexicon ):
                     lexicon[ found_tag ] = {}
-                if( lc_text_span not in lexicon[ found_tag ] ):
-                    lexicon[ found_tag ][ lc_text_span ] = {}
-                if( text_span not in lexicon[ found_tag ][ lc_text_span ] ):
-                    lexicon[ found_tag ][ lc_text_span ][ text_span ] = 0
-                lexicon[ found_tag ][ lc_text_span ][ text_span ] += 1
+                if( min_term_length == 0 or
+                    len( lc_text_span ) >= min_term_length ):
+                    if( lc_text_span not in lexicon[ found_tag ] ):
+                        lexicon[ found_tag ][ lc_text_span ] = {}
+                    if( text_span not in lexicon[ found_tag ][ lc_text_span ] ):
+                        lexicon[ found_tag ][ lc_text_span ][ text_span ] = 0
+                    lexicon[ found_tag ][ lc_text_span ][ text_span ] += 1
+                ########
                 if( found_tag in eventConcepts ):
                     eventMentions[ mention_id ] = {}
                     eventMentions[ mention_id ][ 'class' ] = found_tag
@@ -465,7 +504,8 @@ def process_ann_file( cas ,
                     if( found_tag not in lexicon ):
                         lexicon[ found_tag ] = {}
                     text_span = modifierMentions[ mention_id ][ 'text' ]
-                    lc_text_span = normalizeTerm( text_span )
+                    lc_text_span = normalizeTerm( text_span ,
+                                                  normalization = normalization )
                     if( lc_text_span not in lexicon[ found_tag ] ):
                         lexicon[ found_tag ][ lc_text_span ] = {}
                     if( annot_val not in lexicon[ found_tag ][ lc_text_span ] ):
@@ -698,6 +738,8 @@ if __name__ == "__main__":
                                 os.path.join( args.brat_root , brat_filename ) ,
                                 note_total = note_total ,
                                 note_count = note_count ,
+                                normalization = args.normalization ,
+                                min_term_length = args.minTermLength ,
                                 skip_relations = args.noRels ,
                                 gap_file = args.gapFile )
         if( args.cas_root is not None ):
@@ -712,8 +754,12 @@ if __name__ == "__main__":
                             'StatusTimeVal' ,
                             'TypeLivingVal' ] ):
                 continue
+            file_access_flag = 'w'
+            if( args.append ):
+                file_access_flag = 'a'                    
             with open( os.path.join( args.lxcn_root ,
-                                     '{}.lxcn'.format( entity ) ) , 'w' ) as fp:
+                                     '{}.lxcn'.format( entity ) ) ,
+                       file_access_flag ) as fp:
                 count = 0
                 for lexeme in sorted( lexicon[ entity ] ):
                     prefix = '\t'
@@ -732,7 +778,10 @@ if __name__ == "__main__":
                                                               lexicon[ value_concept ][ lexeme ][ annot_val ] ) )
                             if( lexicon[ value_concept ][ lexeme ][ annot_val ] > default_count ):
                                 default_value = annot_val
-                    if( len( lexicon[ entity ][ lexeme ] ) > 1 ):
+                    ## This check may seem weird now but it was useful
+                    ## for early testing.  I'm keeping it around for a
+                    ## spell in case it proves useful again.
+                    if( len( lexicon[ entity ][ lexeme ] ) > 0 ):
                         prefix = '\t\t'
                         if( default_value is None ):
                             fp.write( '{}\n'.format( lexeme ) )

@@ -1,4 +1,6 @@
 
+conll/data/
+n2c2/tests/data/*.lxcn
 \#*
 *~
 \#*

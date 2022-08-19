@@ -439,7 +439,7 @@ if __name__ == "__main__":
         cas_path = os.path.join( args.cas_root ,
                                  '{}.xmi'.format( plain_filename ) )
         if( not os.path.exists( txt_path ) ):
-            log.warn( 'No matching txt file found for \'{}\''.format( xml_filename ) )
+            log.warn( 'No matching txt file found for \'{}\''.format( brat_filename ) )
             continue
         with open( txt_path , 'r' ) as fp:
             note_contents = fp.read().strip()
