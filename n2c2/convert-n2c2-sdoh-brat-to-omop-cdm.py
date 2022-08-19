@@ -38,6 +38,10 @@ except ImportError:
 
 import cassis
 
+import warnings
+
+warnings.filterwarnings( 'ignore' , category = UserWarning , module = 'cassis' )
+
 #############################################
 ## helper functions
 #############################################
@@ -47,6 +51,20 @@ def initialize_arg_parser():
 """)
     parser.add_argument( '-v' , '--verbose' ,
                          help = "print more information" ,
+                         action = "store_true" )
+
+    parser.add_argument( '--append' ,
+                         help = "Append new lexical entries to pre-existing lexicons" ,
+                         action = "store_true" )
+
+    parser.add_argument( '--allow-relations' ,
+                         dest = 'allowRels' ,
+                         help = "Allow relation arcs in source documents to be passed through (Default. Including is a noop)" ,
+                         action = "store_true" )
+
+    parser.add_argument( '--no-relations' ,
+                         dest = 'noRels' ,
+                         help = "Do not create any relation arcs between concepts" ,
                          action = "store_true" )
 
     parser.add_argument( '--progressbar-output' ,
@@ -75,9 +93,26 @@ def initialize_arg_parser():
                          help = "Directory for input corpus in brat format (.ann files)" )
 
     parser.add_argument( '--cas-root' , default = None ,
-                         required = True ,
                          dest = "cas_root",
                          help = "Directory for output corpus in CAS XMI formatted XML" )
+
+    parser.add_argument( '--lxcn-root' , default = None ,
+                         dest = "lxcn_root",
+                         help = "Directory for output tab-delimited lexicon files" )
+
+    parser.add_argument( '--normalization' ,
+                         dest = 'normalization' ,
+                         default = 'lowercase' ,
+                         choices = [ 'none' , 'lowercase' , 'digits' ] ,
+                         help = "Normalization process to perform on lexical entries" )
+
+    parser.add_argument( '--min-term-length' , default = 0 ,
+                         dest = 'minTermLength' ,
+                         help = "Minimum character count for a lexical item to be included in generated lexicons (0 means to allow all terms)" )
+
+    parser.add_argument( '--gap-file' , default = None ,
+                         dest = "gapFile",
+                         help = "CSV file for listing distances between triggers and modifiers" )
     ##
     return parser
 
@@ -109,6 +144,32 @@ def init_args():
         elif( args.progressbar_output == 'stdout' ):
             args.progressbar_file = sys.stdout
     ##
+    if( args.cas_root is not None and
+        not os.path.exists( args.cas_root ) ):
+        try:
+            os.makedirs( args.cas_root )
+        except OSError as e:
+            log.error( 'OSError caught while trying to create CAS XMI output folder:  {}'.format( e ) )
+        except IOError as e:
+            log.error( 'IOError caught while trying to create CAS XMI output folder:  {}'.format( e ) )
+    if( args.lxcn_root is not None and
+        not os.path.exists( args.lxcn_root ) ):
+        try:
+            os.makedirs( args.lxcn_root )
+        except OSError as e:
+            log.error( 'OSError caught while trying to create lexicon output folder:  {}'.format( e ) )
+        except IOError as e:
+            log.error( 'IOError caught while trying to create lexicon output folder:  {}'.format( e ) )
+    ####
+    if( args.gapFile is not None ):
+        with open( args.gapFile , 'w' ) as fp:
+            fp.write( '{}\t{}\t{}\n'.format( 'Trigger' , 'Relation' , 'Distance' ) )
+    ####
+    try:
+        args.minTermLength = int( args.minTermLength )
+    except ValueError:
+        log.error( 'Min term length value is not an int:  "{}"'.format( args.minTermLength ) )
+    ########
     return args
 
 
@@ -174,23 +235,112 @@ def loadTypesystem( args ):
                                name = 'term_modifiers' ,
                                description = '' ,
                                rangeType = 'uima.cas.String' )
+    ############
+    ## ... for OMOP CDM v5.3 FACT_RELATIONSHIP table properties
+    ##     https://ohdsi.github.io/CommonDataModel/cdm53.html#FACT_RELATIONSHIP
+    FactRelationship = typesystem.create_type( name = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TableProperties' ,
+                                               supertypeName = 'uima.tcas.Annotation' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'domain_concept_id_1' ,
+                               description = 'The CONCEPT id for the appropriate scoping domain' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'fact_id_1' ,
+                               description = 'The id for the first fact' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'domain_concept_id_2' ,
+                               description = 'The CONCEPT id for the appropriate scoping domain' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'fact_id_2' ,
+                               description = 'The id for the second fact' ,
+                               rangeType = 'uima.cas.Integer' )
+    typesystem.create_feature( domainType = FactRelationship ,
+                               name = 'relationship_concept_id' ,
+                               description = 'This id for the relationship held between the two facts' ,
+                               rangeType = 'uima.cas.Integer' )
     ####
     return( typesystem )
 
 
+def normalizeTerm( word , normalization = 'lowercase' ):
+    lemma = word
+    if( normalization in [ 'lowercase' , 'digits' ] ):
+        lemma = lemma.lower()
+    if( normalization in [ 'digits' ] ):
+        ## Escape all special regex characters
+        lemma = re.sub( '\+' , '.' , lemma )
+        lemma = re.sub( '\?' , '.' , lemma )
+        lemma = re.sub( '\*' , '.' , lemma )
+        lemma = re.sub( '\[' , '.' , lemma )
+        lemma = re.sub( '\]' , '.' , lemma )
+        lemma = re.sub( '\(' , '.' , lemma )
+        lemma = re.sub( '\)' , '.' , lemma )
+        ## Replace digits with \d+ regex
+        lemma = re.sub( r' \d+ ' , ' \\\d+ ' , lemma )
+        lemma = re.sub( r' \d+ ' , ' \\\d+ ' , lemma )
+        lemma = re.sub( r'^\d+ ' , '\\\d+ ' , lemma )
+        lemma = re.sub( r' \d+$' , ' \\\d+' , lemma )
+    return( lemma )
+
+
 noteNlp_typeString = 'edu.musc.tbic.omop_cdm.Note_Nlp_TableProperties'
+factRelationship_typeString = 'edu.musc.tbic.omop_cdm.Fact_Relationship_TableProperties'
 
 #############################################
 ## core functions
 #############################################
 
+lexicon = {}
+relPairs = { 'IsTriggerFor' : 'HasTrigger' ,
+             'HasStatus' : 'IsStatusFor' ,
+             'HasStatusEmploy' : 'IsStatusEmployFor' ,
+             'HasStatusTime' : 'IsStatusTimeFor' ,
+             'HasDuration' : 'IsDurationFor' ,
+             'HasHistory' : 'IsHistoryFor' ,
+             'HasType' : 'IsTypeFor' ,
+             'HasTypeLiving' : 'IsTypeLivingFor' ,
+             'HasMethod' : 'IsMethodFor' ,
+             'HasAmount' : 'IsAmountFor' ,
+             'HasFrequency' : 'IsFrequencyFor' 
+            }
+relIds = {}
+count = 0
+## Make sure all relations are symmetrical
+## TODO - add relIds mapping to metadata in CAS XMI
+for relA in [ 'IsTriggerFor' ,
+              'HasStatus' ,
+              'HasStatusEmploy' ,
+              'HasStatusTime' ,
+              'HasDuration' ,
+              'HasHistory' , 
+              'HasType' ,
+              'HasTypeLiving' ,
+              'HasMethod' ,
+              'HasAmount' ,
+              'HasFrequency' ]:
+    count += 1
+    relIds[ relA ] = count
+    count += 1
+    relIds[ relPairs[ relA ] ] = count
+    relPairs[ relPairs[ relA ] ] = relA
+
 def process_ann_file( cas ,
-                      input_filename ):
+                      input_filename ,
+                      note_total ,
+                      note_count ,
+                      normalization = 'lowercase' ,
+                      min_term_length = 0 ,
+                      skip_relations = False ,
+                      gap_file = None ):
+    ########
     spans = {}
     ##
     FSArray = typesystem.get_type( 'uima.cas.FSArray' )
     
     noteNlpType = typesystem.get_type( noteNlp_typeString )
+    factRelationshipType = typesystem.get_type( factRelationship_typeString )
     
     eventConcepts = {}
     ####################################################
@@ -255,8 +405,12 @@ def process_ann_file( cas ,
     ####
     eventMentions = {}
     modifierMentions = {}
+    relationArcs = {}
     with open( input_filename , 'r' ) as fp:
-        note_id = os.path.basename( input_filename )[ 0:-4 ]
+        try:
+            note_id = int( os.path.basename( input_filename )[ 0:-4 ] )
+        except ValueError as e:
+            note_id = note_count
         for line in fp:
             line = line.strip()
             ## Continuous:
@@ -284,8 +438,21 @@ def process_ann_file( cas ,
                     continue
                 mention_id = matches.group( 1 )
                 begin_offset = int( matches.group( 3 ) )
+                middle_offset = matches.group( 4 )
                 end_offset = int( matches.group( 5 ) )
                 text_span = matches.group( 6 )
+                lc_text_span = normalizeTerm( text_span ,
+                                              normalization = normalization )
+                if( found_tag not in lexicon ):
+                    lexicon[ found_tag ] = {}
+                if( min_term_length == 0 or
+                    len( lc_text_span ) >= min_term_length ):
+                    if( lc_text_span not in lexicon[ found_tag ] ):
+                        lexicon[ found_tag ][ lc_text_span ] = {}
+                    if( text_span not in lexicon[ found_tag ][ lc_text_span ] ):
+                        lexicon[ found_tag ][ lc_text_span ][ text_span ] = 0
+                    lexicon[ found_tag ][ lc_text_span ][ text_span ] += 1
+                ########
                 if( found_tag in eventConcepts ):
                     eventMentions[ mention_id ] = {}
                     eventMentions[ mention_id ][ 'class' ] = found_tag
@@ -334,6 +501,16 @@ def process_ann_file( cas ,
                                    'StatusTimeVal' ,
                                    'TypeLivingVal' ] ):
                     modifierMentions[ mention_id ][ found_tag ] = annot_val
+                    if( found_tag not in lexicon ):
+                        lexicon[ found_tag ] = {}
+                    text_span = modifierMentions[ mention_id ][ 'text' ]
+                    lc_text_span = normalizeTerm( text_span ,
+                                                  normalization = normalization )
+                    if( lc_text_span not in lexicon[ found_tag ] ):
+                        lexicon[ found_tag ][ lc_text_span ] = {}
+                    if( annot_val not in lexicon[ found_tag ][ lc_text_span ] ):
+                        lexicon[ found_tag ][ lc_text_span ][ annot_val ] = 0
+                    lexicon[ found_tag ][ lc_text_span ][ annot_val ] += 1
                 continue
             ############
             ## E1	Tobacco:T1 Status:T2
@@ -341,12 +518,65 @@ def process_ann_file( cas ,
             matches = re.match( r'^(E[0-9]+)\s+([A-Za-z]+):(T[0-9]+)\s+(.*)' ,
                                 line )
             if( matches ):
+                trigger_type = matches.group( 2 )
                 found_tag = matches.group( 3 )
+                trigger_id = found_tag.strip( 'T' )
                 rels = matches.group( 4 ).split( ' ' )
                 for relation in rels:
                     rel_entity , rel_tag = relation.split( ':' )
+                    rel_id = rel_tag.strip( 'T' )
+                    ## TODO - handle multiple relations arcs for a
+                    ## given type (e.g., "Amount", "Amount2",
+                    ## "Amount3", etc.)
                     rel_entity = rel_entity.strip( '0123456789' )
                     eventMentions[ found_tag ][ rel_entity ] = rel_tag
+                    ########
+                    if( gap_file is not None ):
+                        try:
+                            begin_trigger = eventMentions[ 'T{}'.format( trigger_id ) ][ 'begin' ]
+                            end_trigger = eventMentions[ 'T{}'.format( trigger_id ) ][ 'end' ]
+                            begin_modifier = modifierMentions[ 'T{}'.format( rel_id ) ][ 'begin' ]
+                            end_modifier = modifierMentions[ 'T{}'.format( rel_id ) ][ 'end' ]
+                            if( begin_trigger == begin_modifier ):
+                                distance = 0
+                            elif( end_trigger < begin_modifier ):
+                                distance = begin_modifier - end_trigger
+                            else:
+                                distance = begin_trigger - end_modifier
+                            with open( gap_file , 'a' ) as fp:
+                                fp.write( '{}\t{}\t{}\n'.format( trigger_type , rel_entity , distance ) )
+                        except KeyError as e:
+                            ## we can skip it
+                            1
+                    ########
+                    if( trigger_id not in relationArcs ):
+                        relationArcs[ trigger_id ] = {}
+                    if( rel_entity not in relationArcs[ trigger_id ] ):
+                        relationArcs[ trigger_id ][ rel_entity ] = set()
+                    if( rel_id not in relationArcs ):
+                        relationArcs[ rel_id ] = {}
+                    if( rel_entity not in relationArcs[ rel_id ] ):
+                        relationArcs[ rel_id ][ rel_entity ] = set()
+                    ####
+                    relationArcs[ trigger_id ][ rel_entity ].add( rel_id )
+                    relationArcs[ rel_id ][ rel_entity ].add( trigger_id )
+                    ## TODO - make look-up in real OMOP CDM concept table easier
+                    triggerRelType = relIds[ 'Has{}'.format( rel_entity ) ]
+                    relTriggerType = relIds[ 'Is{}For'.format( rel_entity ) ]
+                    if( not skip_relations ):
+                        triggerRelRelation = factRelationshipType( domain_concept_id_1 = 1 ,
+                                                                   fact_id_1 = trigger_id ,
+                                                                   domain_concept_id_2 = 2 ,
+                                                                   fact_id_2 = rel_id ,
+                                                                   relationship_concept_id = triggerRelType )
+                        cas.add( triggerRelRelation )
+                        relTriggerType = relIds[ 'Is{}For'.format( rel_entity ) ]
+                        relTriggerRelation = factRelationshipType( domain_concept_id_2 = 1 ,
+                                                                   fact_id_2 = trigger_id ,
+                                                                   domain_concept_id_1 = 2 ,
+                                                                   fact_id_1 = rel_id ,
+                                                                   relationship_concept_id = relTriggerType )
+                        cas.add( relTriggerRelation )
                 continue
         ## We're done extracting all spans and relations
         for event_tag in eventMentions:
@@ -405,10 +635,11 @@ def process_ann_file( cas ,
                 role_id = role_tag.strip( 'T' )
                 role_cui = ''
                 role_modifiers = []
-                role_modifiers.append( '{}={}'.format( 'Trigger' ,
-                                                       note_nlp_id ) )
-                modifiers.append( '{}={}'.format( role_type ,
-                                                  role_id ) )
+                if( not skip_relations ):
+                    role_modifiers.append( '{}={}'.format( 'Trigger' ,
+                                                           note_nlp_id ) )
+                    modifiers.append( '{}={}'.format( role_type ,
+                                                      role_id ) )
                 if( span_class in [ 'Employment' ] ):
                     if( role_type == 'Status' ):
                         role_cui = eventConcepts[ category_val ]
@@ -416,6 +647,7 @@ def process_ann_file( cas ,
                                                                category_val ) )
                 elif( span_class in [ 'LivingStatus' ] ):
                     if( role_type == 'Status' ):
+                        role_cui = modifierMentions[ role_tag ][ 'StatusTimeVal' ]
                         role_modifiers.append( '{}={}'.format( 'StatusVal' ,
                                                                aspect_val ) )
                     elif( role_type == 'Type' ):
@@ -427,22 +659,6 @@ def process_ann_file( cas ,
                         role_cui = eventConcepts[ aspect_val ]
                         role_modifiers.append( '{}={}'.format( 'StatusVal' ,
                                                                aspect_val ) )
-                if( modifierMentions[ role_tag ][ 'role_type' ] in [ 'Modifier' , 'TimeMention' ] ):
-                    roleMention = noteNlpType( note_nlp_id = role_id ,
-                                               note_id = note_id ,
-                                               begin = modifierMentions[ role_tag ][ 'begin' ] ,
-                                               end = modifierMentions[ role_tag ][ 'end' ] ,
-                                               offset = modifierMentions[ role_tag ][ 'begin' ] ,
-                                               lexical_variant = modifierMentions[ role_tag ][ 'text' ] ,
-                                               nlp_system = 'Reference Standard' ,
-                                               note_nlp_source_concept_id = role_cui ,
-                                               ##term_exists = '' ,
-                                               ##term_temporal = '' ,
-                                               term_modifiers = ';'.join( role_modifiers ) )
-                else:
-                    print( 'Surprising role_type: {}'.format( modifierMentions[ role_tag ][ 'role_type' ] ) )
-                    continue
-                cas.add( roleMention )
             ## Trigger Event Mention
             anEventMention = noteNlpType( note_nlp_id = note_nlp_id ,
                                           note_id = note_id ,
@@ -456,6 +672,37 @@ def process_ann_file( cas ,
                                           term_temporal = term_temporal ,
                                           term_modifiers = ';'.join( modifiers ) )
             cas.add( anEventMention )
+        ######## Now tackel the modifiers
+        for role_tag in modifierMentions:
+            role_type = modifierMentions[ role_tag ][ 'class' ]
+            role_id = role_tag.strip( 'T' )
+            role_modifiers = []
+            begin_offset = modifierMentions[ role_tag ][ 'begin' ]
+            end_offset = modifierMentions[ role_tag ][ 'end' ]
+            text_span = modifierMentions[ role_tag ][ 'text' ]
+            cui_source = None
+            if( role_type == 'StatusTime' ):
+                cui_source = 'StatusTimeVal'
+            elif( role_type == 'StatusEmploy' ):
+                cui_source = 'StatusEmployVal'
+            elif( role_type == 'TypeLiving' ):
+                cui_source = 'TypeLivingVal'
+            if( cui_source is None ):
+                role_cui = role_type
+            else:
+                role_cui = modifierMentions[ role_tag ][ cui_source ]
+            roleMention = noteNlpType( note_nlp_id = role_id ,
+                                       note_id = note_id ,
+                                       begin = begin_offset ,
+                                       end = end_offset ,
+                                       offset = begin_offset ,
+                                       lexical_variant = text_span ,
+                                       nlp_system = 'Reference Standard' ,
+                                       note_nlp_source_concept_id = role_cui ,
+                                       ##term_exists = '' ,
+                                       ##term_temporal = '' ,
+                                       term_modifiers = ';'.join( role_modifiers ) )
+            cas.add( roleMention )
     #################################
     return( cas )
 
@@ -470,14 +717,14 @@ if __name__ == "__main__":
     ## Iterate over the files, covert to CAS, and write the XMI to disk
     file_list = [ os.path.basename( f ) for f in glob.glob( os.path.join( args.brat_root ,
                                                                           '*.ann' ) ) ]
+    note_total = len( file_list )
+    note_count = 0
     for brat_filename in tqdm( sorted( file_list ) ,
                                file = args.progressbar_file ,
                                disable = args.progressbar_disabled ):
         plain_filename = brat_filename[ 0:-4 ]
         txt_path = os.path.join( args.txt_root ,
                                 '{}.txt'.format( plain_filename ) )
-        cas_path = os.path.join( args.cas_root ,
-                                 '{}.xmi'.format( plain_filename ) )
         if( not os.path.exists( txt_path ) ):
             log.warn( 'No matching txt file found for \'{}\''.format( xml_filename ) )
             continue
@@ -486,9 +733,67 @@ if __name__ == "__main__":
         cas = cassis.Cas( typesystem = typesystem )
         cas.sofa_string = note_contents
         cas.sofa_mime = "text/plain"
+        note_count += 1
         cas = process_ann_file( cas ,
-                                os.path.join( args.brat_root , brat_filename ) )
-        cas.to_xmi( path = cas_path ,
-                    pretty_print = True )
+                                os.path.join( args.brat_root , brat_filename ) ,
+                                note_total = note_total ,
+                                note_count = note_count ,
+                                normalization = args.normalization ,
+                                min_term_length = args.minTermLength ,
+                                skip_relations = args.noRels ,
+                                gap_file = args.gapFile )
+        if( args.cas_root is not None ):
+            cas_path = os.path.join( args.cas_root ,
+                                     '{}.xmi'.format( plain_filename ) )
+            cas.to_xmi( path = cas_path ,
+                        pretty_print = True )
+    ####
+    if( args.lxcn_root is not None ):
+        for entity in lexicon:
+            if( entity in [ 'StatusEmployVal' ,
+                            'StatusTimeVal' ,
+                            'TypeLivingVal' ] ):
+                continue
+            file_access_flag = 'w'
+            if( args.append ):
+                file_access_flag = 'a'                    
+            with open( os.path.join( args.lxcn_root ,
+                                     '{}.lxcn'.format( entity ) ) ,
+                       file_access_flag ) as fp:
+                count = 0
+                for lexeme in sorted( lexicon[ entity ] ):
+                    prefix = '\t'
+                    ambiguity = []
+                    default_value = None
+                    default_count = 0
+                    if( entity in [ 'StatusEmploy' , 'StatusTime' , 'TypeLiving' ] ):
+                        if( entity == 'StatusEmploy' ):
+                            value_concept = 'StatusEmployVal'
+                        elif( entity == 'StatusTime' ):
+                            value_concept = 'StatusTimeVal'
+                        elif( entity == 'TypeLiving' ):
+                            value_concept = 'TypeLivingVal'
+                        for annot_val in lexicon[ value_concept ][ lexeme ]:
+                            ambiguity.append( '{}={}'.format( annot_val ,
+                                                              lexicon[ value_concept ][ lexeme ][ annot_val ] ) )
+                            if( lexicon[ value_concept ][ lexeme ][ annot_val ] > default_count ):
+                                default_value = annot_val
+                    ## This check may seem weird now but it was useful
+                    ## for early testing.  I'm keeping it around for a
+                    ## spell in case it proves useful again.
+                    if( len( lexicon[ entity ][ lexeme ] ) > 0 ):
+                        prefix = '\t\t'
+                        if( default_value is None ):
+                            fp.write( '{}\n'.format( lexeme ) )
+                        else:
+                            fp.write( '{}\t{}\n'.format( lexeme , default_value ) )
+                        ##if( count < 5 ):
+                        ##    print( '\t{}\t\t{}'.format( lexeme , '|'.join( ambiguity ) ) )
+                        ambiguity = []
+                    for instance in sorted( lexicon[ entity ][ lexeme ] ):
+                        ##if( count < 5 ):
+                        ##    print( '{}{}\t{}\t{}'.format( prefix , instance , lexicon[ entity ][ lexeme ][ instance ] ,
+                        ##                                  '|'.join( ambiguity ) ) )
+                        count += 1
 
             

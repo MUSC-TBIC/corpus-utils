@@ -38,6 +38,10 @@ except ImportError:
 
 import cassis
 
+import warnings
+
+warnings.filterwarnings( 'ignore' , category = UserWarning , module = 'cassis' )
+
 #############################################
 ## helper functions
 #############################################
@@ -321,6 +325,10 @@ def process_ann_file( cas ,
         ## We're done extracting all spans and relations
         for event_tag in eventMentions:
             span_class = eventMentions[ event_tag ][ 'class' ]
+            aspect_tag = None
+            aspect_val = None
+            category_tag = None
+            category_val = None
             ## Main Event
             if( span_class in [ 'Alcohol' , 'Drug' , 'Tobacco' ,
                                 'LivingStatus' ] ):
@@ -384,11 +392,21 @@ def process_ann_file( cas ,
                 ####
                 role_tag = eventMentions[ event_tag ][ role_type ]
                 if( modifierMentions[ role_tag ][ 'role_type' ] == 'Modifier' ):
+                    if( role_tag == aspect_tag ):
+                        role_type = aspect_val
+                    elif( role_tag == category_tag ):
+                        role_type = category_val
+                    else:
+                        role_type = modifierMentions[ role_tag ][ 'class' ]
+                    ########
                     roleMention = modifierType( begin = modifierMentions[ role_tag ][ 'begin' ] ,
-                                                end = modifierMentions[ role_tag ][ 'end' ] )
+                                                end = modifierMentions[ role_tag ][ 'end' ] ,
+                                                category = role_type )
                 elif( modifierMentions[ role_tag ][ 'role_type' ] == 'TimeMention' ):
+                    role_type = modifierMentions[ role_tag ][ 'class' ]
                     roleMention = timeMentionType( begin = modifierMentions[ role_tag ][ 'begin' ] ,
-                                                   end = modifierMentions[ role_tag ][ 'end' ] )
+                                                   end = modifierMentions[ role_tag ][ 'end' ] ,
+                                                   timeClass = role_type )
                 else:
                     print( 'Surprising role_type: {}'.format( modifierMentions[ role_tag ][ 'role_type' ] ) )
                     continue
@@ -421,7 +439,7 @@ if __name__ == "__main__":
         cas_path = os.path.join( args.cas_root ,
                                  '{}.xmi'.format( plain_filename ) )
         if( not os.path.exists( txt_path ) ):
-            log.warn( 'No matching txt file found for \'{}\''.format( xml_filename ) )
+            log.warn( 'No matching txt file found for \'{}\''.format( brat_filename ) )
             continue
         with open( txt_path , 'r' ) as fp:
             note_contents = fp.read().strip()
