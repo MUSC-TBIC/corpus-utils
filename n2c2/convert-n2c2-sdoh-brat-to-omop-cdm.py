@@ -787,13 +787,13 @@ if __name__ == "__main__":
                             fp.write( '{}\n'.format( lexeme ) )
                         else:
                             fp.write( '{}\t{}\n'.format( lexeme , default_value ) )
-                        if( count < 5 ):
-                            print( '\t{}\t\t{}'.format( lexeme , '|'.join( ambiguity ) ) )
+                        ##if( count < 5 ):
+                        ##    print( '\t{}\t\t{}'.format( lexeme , '|'.join( ambiguity ) ) )
                         ambiguity = []
                     for instance in sorted( lexicon[ entity ][ lexeme ] ):
-                        if( count < 5 ):
-                            print( '{}{}\t{}\t{}'.format( prefix , instance , lexicon[ entity ][ lexeme ][ instance ] ,
-                                                          '|'.join( ambiguity ) ) )
+                        ##if( count < 5 ):
+                        ##    print( '{}{}\t{}\t{}'.format( prefix , instance , lexicon[ entity ][ lexeme ][ instance ] ,
+                        ##                                  '|'.join( ambiguity ) ) )
                         count += 1
 
             
